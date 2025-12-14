@@ -7,26 +7,34 @@ import Image from 'next/image'
 export default function Home() {
   const router = useRouter()
   const [leagues, setLeagues] = useState<{ id: number; name: string }[]>([])
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/leagues')
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`)
-        }
-        return res.json()
-      })
-      .then(data => {
-        if (data.error) {
-          console.error('API error:', data.error)
-          return
-        }
-        setLeagues(data)
-      })
-      .catch(err => {
-        console.error('Error fetching leagues:', err)
-        // Page will still render, just without leagues
-      })
+    // Add a small delay to ensure page renders first
+    const timer = setTimeout(() => {
+      fetch('/api/leagues')
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`)
+          }
+          return res.json()
+        })
+        .then(data => {
+          if (data.error) {
+            console.error('API error:', data.error)
+            setError('Unable to load leagues. Please check your database connection.')
+            return
+          }
+          setLeagues(data)
+        })
+        .catch(err => {
+          console.error('Error fetching leagues:', err)
+          setError('Unable to load leagues. The page will still work, but you may need to configure your database.')
+          // Page will still render, just without leagues
+        })
+    }, 100)
+    
+    return () => clearTimeout(timer)
   }, [])
 
   const handleLeagueSelect = (leagueId: number) => {
@@ -54,6 +62,11 @@ export default function Home() {
             Submit A Scorecard
           </h2>
           <div className="space-y-4">
+            {error && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <p className="text-yellow-800 text-sm">{error}</p>
+              </div>
+            )}
             {leagues.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-600 mb-4">No leagues available</p>
