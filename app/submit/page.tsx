@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Image from 'next/image'
 
 interface Player {
@@ -22,7 +22,7 @@ interface Week {
   isChampionship: boolean
 }
 
-export default function SubmitPage() {
+function SubmitPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const leagueId = searchParams.get('leagueId')
@@ -377,6 +377,18 @@ export default function SubmitPage() {
         </div>
       </div>
     </main>
+  )
+}
+
+export default function SubmitPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen p-8 bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </main>
+    }>
+      <SubmitPageContent />
+    </Suspense>
   )
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -87,7 +87,7 @@ const getWeekNumberForDisplay = (week: { weekNumber: number; isChampionship: boo
   return week.isChampionship ? 12 : week.weekNumber
 }
 
-export default function PlayerPage() {
+function PlayerPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const playerId = searchParams.get('playerId')
@@ -639,3 +639,14 @@ export default function PlayerPage() {
   )
 }
 
+export default function PlayerPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen p-8 bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </main>
+    }>
+      <PlayerPageContent />
+    </Suspense>
+  )
+}

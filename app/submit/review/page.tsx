@@ -1,9 +1,9 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 
-export default function ReviewPage() {
+function ReviewPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const playerIndex = parseInt(searchParams.get('playerIndex') || '0')
@@ -123,3 +123,14 @@ export default function ReviewPage() {
   )
 }
 
+export default function ReviewPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen p-8 bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </main>
+    }>
+      <ReviewPageContent />
+    </Suspense>
+  )
+}
