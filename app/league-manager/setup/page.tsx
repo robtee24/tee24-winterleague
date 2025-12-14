@@ -69,6 +69,7 @@ export default function LeagueSetupPage() {
   const [selectedWeek, setSelectedWeek] = useState<{ id: number; weekNumber: number; isChampionship: boolean } | null>(null)
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null)
   const [selectedOpponent, setSelectedOpponent] = useState<string>('')
+  const [recalculating, setRecalculating] = useState(false)
 
   useEffect(() => {
     if (!leagueId) {
@@ -528,6 +529,37 @@ export default function LeagueSetupPage() {
     }
   }
 
+  const handleRecalculateHandicaps = async () => {
+    if (!leagueId) return
+
+    if (!confirm('This will recalculate all handicaps for this league. This may take a moment. Continue?')) {
+      return
+    }
+
+    setRecalculating(true)
+    try {
+      const response = await fetch(`/api/handicaps/recalculate?leagueId=${leagueId}`, {
+        method: 'POST'
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to recalculate handicaps')
+      }
+
+      alert('Handicaps recalculated successfully! The page will refresh.')
+      setTimeout(() => {
+        loadData()
+      }, 500)
+    } catch (error: any) {
+      console.error('Error recalculating handicaps:', error)
+      alert(`Failed to recalculate handicaps: ${error.message || 'Unknown error'}`)
+    } finally {
+      setRecalculating(false)
+    }
+  }
+
   const handleCreateMatch = async () => {
     if (!leagueId || !selectedWeek || !selectedTeam || !selectedOpponent) return
 
@@ -624,7 +656,20 @@ export default function LeagueSetupPage() {
         >
           ← Back
         </button>
-        <h1 className="text-3xl font-bold mb-8 text-black">League Setup</h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-black">League Setup</h1>
+          <button
+            onClick={handleRecalculateHandicaps}
+            disabled={recalculating}
+            className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
+              recalculating
+                ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                : 'bg-orange-600 text-white hover:bg-orange-700'
+            }`}
+          >
+            {recalculating ? 'Recalculating...' : 'Recalculate Handicaps'}
+          </button>
+        </div>
 
         {/* Set Roster Section */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
