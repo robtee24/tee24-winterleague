@@ -10,9 +10,23 @@ export default function Home() {
 
   useEffect(() => {
     fetch('/api/leagues')
-      .then(res => res.json())
-      .then(data => setLeagues(data))
-      .catch(err => console.error('Error fetching leagues:', err))
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`)
+        }
+        return res.json()
+      })
+      .then(data => {
+        if (data.error) {
+          console.error('API error:', data.error)
+          return
+        }
+        setLeagues(data)
+      })
+      .catch(err => {
+        console.error('Error fetching leagues:', err)
+        // Page will still render, just without leagues
+      })
   }, [])
 
   const handleLeagueSelect = (leagueId: number) => {
