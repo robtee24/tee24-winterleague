@@ -3,36 +3,48 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   try {
+    console.log('Fetching leagues from database...')
     let leagues = await prisma.league.findMany({
       orderBy: { name: 'asc' }
     })
     
+    console.log(`Found ${leagues.length} leagues in database`)
+    
     // If no leagues exist, create them automatically
     if (leagues.length === 0) {
       console.log('No leagues found, creating Louisville and Clarksville...')
-      const louisville = await prisma.league.upsert({
-        where: { name: 'Louisville' },
-        update: {},
-        create: {
-          name: 'Louisville',
-        },
-      })
+      try {
+        const louisville = await prisma.league.upsert({
+          where: { name: 'Louisville' },
+          update: {},
+          create: {
+            name: 'Louisville',
+          },
+        })
 
-      const clarksville = await prisma.league.upsert({
-        where: { name: 'Clarksville' },
-        update: {},
-        create: {
-          name: 'Clarksville',
-        },
-      })
+        const clarksville = await prisma.league.upsert({
+          where: { name: 'Clarksville' },
+          update: {},
+          create: {
+            name: 'Clarksville',
+          },
+        })
 
-      leagues = [louisville, clarksville]
-      console.log('Leagues created:', leagues)
+        leagues = [louisville, clarksville]
+        console.log('Leagues created successfully:', leagues.map(l => ({ id: l.id, name: l.name })))
+      } catch (createError: any) {
+        console.error('Error creating leagues:', createError)
+        throw createError
+      }
+    } else {
+      console.log('Leagues found:', leagues.map(l => ({ id: l.id, name: l.name })))
     }
     
     return NextResponse.json(leagues)
   } catch (error: any) {
-    console.error('Error fetching leagues:', error)
+    console.error('Error in GET /api/leagues:', error)
+    console.error('Error message:', error?.message)
+    console.error('Error stack:', error?.stack)
     // Return empty array instead of error to prevent page crash
     // This allows the page to load even if database isn't configured
     return NextResponse.json([], { status: 200 })
