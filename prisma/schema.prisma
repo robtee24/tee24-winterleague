@@ -1,0 +1,149 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model League {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  players   Player[]
+  courses   Course[]
+  weeks     Week[]
+  teams     Team[]
+}
+
+model Player {
+  id        Int      @id @default(autoincrement())
+  firstName String
+  lastName  String?  // Made optional to allow single-name entries
+  phone     String?
+  email     String?
+  leagueId  Int
+  league    League   @relation(fields: [leagueId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  scores    Score[]
+  handicaps Handicap[]
+  teamsAsPlayer1 Team[] @relation("TeamPlayer1")
+  teamsAsPlayer2 Team[] @relation("TeamPlayer2")
+}
+
+model Course {
+  id        Int      @id @default(autoincrement())
+  name      String
+  week      Int
+  leagueId  Int
+  league    League   @relation(fields: [leagueId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Week {
+  id        Int      @id @default(autoincrement())
+  weekNumber Int
+  leagueId  Int
+  league    League   @relation(fields: [leagueId], references: [id])
+  isChampionship Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  scores    Score[]
+  handicaps Handicap[]
+  matches   Match[]
+}
+
+model Handicap {
+  id            Int      @id @default(autoincrement())
+  playerId      Int
+  player        Player   @relation(fields: [playerId], references: [id])
+  weekId        Int
+  week          Week     @relation(fields: [weekId], references: [id])
+  handicap      Float    @default(0)  // Applied handicap (used for scoring)
+  rawHandicap   Float?   // Raw handicap (score - round low, capped at 25)
+  appliedHandicap Float? // Applied handicap for this round (calculated before round)
+  isBaseline    Boolean  @default(false) // True if this is the baseline handicap (rounds 1-3)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([playerId, weekId])
+}
+
+model Score {
+  id          Int      @id @default(autoincrement())
+  playerId    Int
+  player      Player   @relation(fields: [playerId], references: [id])
+  weekId      Int
+  week        Week     @relation(fields: [weekId], references: [id])
+  hole1       Int?
+  hole2       Int?
+  hole3       Int?
+  hole4       Int?
+  hole5       Int?
+  hole6       Int?
+  hole7       Int?
+  hole8       Int?
+  hole9       Int?
+  hole10      Int?
+  hole11      Int?
+  hole12      Int?
+  hole13      Int?
+  hole14      Int?
+  hole15      Int?
+  hole16      Int?
+  hole17      Int?
+  hole18      Int?
+  front9      Int?
+  back9       Int?
+  total       Int?
+  weightedScore Float?
+  scorecardImage String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Team {
+  id          Int      @id @default(autoincrement())
+  teamNumber  Int
+  leagueId    Int
+  league      League   @relation(fields: [leagueId], references: [id])
+  player1Id   Int
+  player1     Player   @relation("TeamPlayer1", fields: [player1Id], references: [id])
+  player2Id   Int
+  player2     Player   @relation("TeamPlayer2", fields: [player2Id], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  matchesAsTeam1 Match[] @relation("Team1Matches")
+  matchesAsTeam2 Match[] @relation("Team2Matches")
+  
+  @@unique([leagueId, teamNumber])
+  @@unique([leagueId, player1Id, player2Id])
+  @@index([player1Id])
+  @@index([player2Id])
+}
+
+model Match {
+  id          Int      @id @default(autoincrement())
+  weekId      Int
+  week        Week     @relation(fields: [weekId], references: [id])
+  team1Id     Int
+  team1       Team     @relation("Team1Matches", fields: [team1Id], references: [id])
+  team2Id     Int?
+  team2       Team?    @relation("Team2Matches", fields: [team2Id], references: [id])
+  team1Points Int      @default(0)
+  team2Points Int      @default(0)
+  winnerId    Int?
+  isManual    Boolean  @default(false) // true for weeks 11 and championship
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([weekId, team1Id, team2Id])
+}
+
