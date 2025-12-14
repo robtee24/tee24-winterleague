@@ -52,9 +52,9 @@ export async function getPlayerRawHandicaps(
   const rawHandicaps: number[] = []
   
   for (const weekNum of weekNumbers) {
-    // Get the most recent raw handicap for this weekNumber
-    // Group by weekNumber to handle duplicate week records
-    const handicap = await prisma.handicap.findFirst({
+    // Get all handicaps for this player and weekNumber, then find the one with rawHandicap
+    // This handles duplicate week records better
+    const handicaps = await prisma.handicap.findMany({
       where: {
         playerId,
         week: {
@@ -75,7 +75,10 @@ export async function getPlayerRawHandicaps(
       ]
     })
     
-    if (handicap?.rawHandicap !== null && handicap?.rawHandicap !== undefined) {
+    // Get the first one with a valid rawHandicap
+    const handicap = handicaps.find(h => h.rawHandicap !== null && h.rawHandicap !== undefined)
+    
+    if (handicap && handicap.rawHandicap !== null && handicap.rawHandicap !== undefined) {
       rawHandicaps.push(handicap.rawHandicap)
     }
   }
@@ -127,11 +130,89 @@ export async function calculateBaselineHandicaps(leagueId: number): Promise<void
   })
 
   for (const player of players) {
-    const rawHandicaps = await getPlayerRawHandicaps(player.id, leagueId, 3)
+    // First, check if player has scores for weeks 1-3
+    const weeks1to3 = await prisma.week.findMany({
+      where: {
+        leagueId,
+        weekNumber: { lte: 3 },
+        isChampionship: false
+      }
+    })
+    
+    const weekIds = weeks1to3.map(w => w.id)
+    const playerScores = await prisma.score.findMany({
+      where: {
+        playerId: player.id,
+        weekId: { in: weekIds },
+        total: { not: null }
+      },
+      include: { week: true }
+    })
+    
+    // Group scores by weekNumber to handle duplicates
+    const scoresByWeek = new Map<number, typeof playerScores[0]>()
+    for (const score of playerScores) {
+      if (!scoresByWeek.has(score.week.weekNumber)) {
+        scoresByWeek.set(score.week.weekNumber, score)
+      }
+    }
+    
+    if (scoresByWeek.size < 3) {
+      console.log(`[calculateBaselineHandicaps] Player ${player.id} (${player.firstName}): Only ${scoresByWeek.size} rounds with scores, skipping`)
+      continue // Player doesn't have 3 rounds yet
+    }
+    
+    // Get raw handicaps - if missing, calculate them now
+    let rawHandicaps = await getPlayerRawHandicaps(player.id, leagueId, 3)
+    
+    // If we have scores but missing raw handicaps, calculate them
+    if (rawHandicaps.length < 3 && scoresByWeek.size >= 3) {
+      console.log(`[calculateBaselineHandicaps] Player ${player.id} (${player.firstName}): Missing raw handicaps, calculating now...`)
+      
+      // Calculate raw handicaps for each week
+      for (let weekNum = 1; weekNum <= 3; weekNum++) {
+        const score = scoresByWeek.get(weekNum)
+        if (!score) continue
+        
+        // Get all scores for this week to find round low
+        const allWeekScores = await prisma.score.findMany({
+          where: {
+            weekId: score.weekId,
+            total: { not: null }
+          }
+        })
+        
+        if (allWeekScores.length > 0) {
+          const roundLow = Math.min(...allWeekScores.map(s => s.total!))
+          const rawHandicap = calculateRawHandicap(score.total!, roundLow)
+          
+          // Store the raw handicap
+          await prisma.handicap.upsert({
+            where: {
+              playerId_weekId: {
+                playerId: player.id,
+                weekId: score.weekId
+              }
+            },
+            update: {
+              rawHandicap
+            },
+            create: {
+              playerId: player.id,
+              weekId: score.weekId,
+              rawHandicap
+            }
+          })
+        }
+      }
+      
+      // Get raw handicaps again after calculating
+      rawHandicaps = await getPlayerRawHandicaps(player.id, leagueId, 3)
+    }
     
     if (rawHandicaps.length < 3) {
-      console.log(`[calculateBaselineHandicaps] Player ${player.id} (${player.firstName}): Only ${rawHandicaps.length} rounds, skipping`)
-      continue // Player doesn't have 3 rounds yet
+      console.log(`[calculateBaselineHandicaps] Player ${player.id} (${player.firstName}): Only ${rawHandicaps.length} raw handicaps after calculation, skipping`)
+      continue
     }
     
     const baseline = calculateBaseline(rawHandicaps)
