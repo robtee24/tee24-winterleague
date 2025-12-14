@@ -8,37 +8,62 @@ export default function Home() {
   const router = useRouter()
   const [leagues, setLeagues] = useState<{ id: number; name: string }[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [retryCount, setRetryCount] = useState(0)
+
+  const fetchLeagues = async (retry = 0) => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const res = await fetch('/api/leagues', {
+        cache: 'no-store', // Always fetch fresh data
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      })
+      
+      console.log('Leagues API response status:', res.status)
+      
+      const data = await res.json()
+      
+      if (!res.ok || data.error) {
+        throw new Error(data.message || data.error || `HTTP error! status: ${res.status}`)
+      }
+      
+      if (Array.isArray(data)) {
+        setLeagues(data)
+        setError(null)
+      } else {
+        throw new Error('Received unexpected data format from server.')
+      }
+    } catch (err: any) {
+      console.error('Error fetching leagues:', err)
+      setError(`Unable to load leagues: ${err.message}`)
+      
+      // Auto-retry up to 3 times
+      if (retry < 3) {
+        setTimeout(() => {
+          setRetryCount(retry + 1)
+          fetchLeagues(retry + 1)
+        }, 1000 * (retry + 1)) // Exponential backoff
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    // Add a small delay to ensure page renders first
-    const timer = setTimeout(() => {
-      fetch('/api/leagues')
-        .then(res => {
-          if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`)
-          }
-          return res.json()
-        })
-        .then(data => {
-          if (data.error) {
-            console.error('API error:', data.error)
-            setError('Unable to load leagues. Please check your database connection.')
-            return
-          }
-          setLeagues(data)
-        })
-        .catch(err => {
-          console.error('Error fetching leagues:', err)
-          setError('Unable to load leagues. The page will still work, but you may need to configure your database.')
-          // Page will still render, just without leagues
-        })
-    }, 100)
-    
-    return () => clearTimeout(timer)
+    fetchLeagues()
   }, [])
 
   const handleLeagueSelect = (leagueId: number) => {
-    router.push(`/submit?leagueId=${leagueId}`)
+    try {
+      router.push(`/submit?leagueId=${leagueId}`)
+    } catch (error) {
+      console.error('Error navigating to submit page:', error)
+      alert('Error navigating to submission page. Please try again.')
+    }
   }
 
   return (
@@ -62,16 +87,34 @@ export default function Home() {
             Submit A Scorecard
           </h2>
           <div className="space-y-4">
-            {error && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-                <p className="text-yellow-800 text-sm">{error}</p>
+            {loading && (
+              <div className="text-center py-8">
+                <p className="text-gray-600">Loading leagues...</p>
               </div>
             )}
-            {leagues.length === 0 ? (
+            {error && !loading && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <p className="text-yellow-800 text-sm mb-2">{error}</p>
+                <button
+                  onClick={() => fetchLeagues(0)}
+                  className="text-yellow-800 underline text-sm hover:text-yellow-900"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!loading && !error && leagues.length === 0 && (
               <div className="text-center py-8">
                 <p className="text-gray-600 mb-4">No leagues available</p>
+                <button
+                  onClick={() => fetchLeagues(0)}
+                  className="text-blue-600 underline text-sm hover:text-blue-700"
+                >
+                  Retry
+                </button>
               </div>
-            ) : (
+            )}
+            {!loading && !error && leagues.length > 0 && (
               leagues.map((league) => (
                 <button
                   key={league.id}
@@ -89,31 +132,65 @@ export default function Home() {
             </h2>
             <div className="space-y-4">
               <button
-                onClick={() => router.push('/leaderboard')}
+                onClick={() => {
+                  try {
+                    router.push('/leaderboard')
+                  } catch (error) {
+                    console.error('Navigation error:', error)
+                    window.location.href = '/leaderboard'
+                  }
+                }}
                 className="w-full py-4 px-6 bg-blue-600 text-white rounded-lg font-semibold text-lg hover:bg-blue-700 transition-colors shadow-md"
               >
                 See Leaderboard
               </button>
               <button
-                onClick={() => router.push('/directory')}
+                onClick={() => {
+                  try {
+                    router.push('/directory')
+                  } catch (error) {
+                    console.error('Navigation error:', error)
+                    window.location.href = '/directory'
+                  }
+                }}
                 className="w-full py-4 px-6 bg-purple-600 text-white rounded-lg font-semibold text-lg hover:bg-purple-700 transition-colors shadow-md"
               >
                 League Directory
               </button>
               <button
-                onClick={() => router.push('/schedule')}
+                onClick={() => {
+                  try {
+                    router.push('/schedule')
+                  } catch (error) {
+                    console.error('Navigation error:', error)
+                    window.location.href = '/schedule'
+                  }
+                }}
                 className="w-full py-4 px-6 bg-orange-600 text-white rounded-lg font-semibold text-lg hover:bg-orange-700 transition-colors shadow-md"
               >
                 League Schedule
               </button>
               <button
-                onClick={() => router.push('/rules')}
+                onClick={() => {
+                  try {
+                    router.push('/rules')
+                  } catch (error) {
+                    console.error('Navigation error:', error)
+                    window.location.href = '/rules'
+                  }
+                }}
                 className="w-full py-4 px-6 bg-indigo-600 text-white rounded-lg font-semibold text-lg hover:bg-indigo-700 transition-colors shadow-md"
               >
                 League Rules
               </button>
               <button
-                onClick={() => window.open('https://troubleshoot.tee24.golf/', '_blank')}
+                onClick={() => {
+                  try {
+                    window.open('https://troubleshoot.tee24.golf/', '_blank')
+                  } catch (error) {
+                    console.error('Error opening link:', error)
+                  }
+                }}
                 className="w-full py-4 px-6 bg-red-600 text-white rounded-lg font-semibold text-lg hover:bg-red-700 transition-colors shadow-md"
               >
                 Troubleshooting
