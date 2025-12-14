@@ -3,9 +3,33 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   try {
-    const leagues = await prisma.league.findMany({
+    let leagues = await prisma.league.findMany({
       orderBy: { name: 'asc' }
     })
+    
+    // If no leagues exist, create them automatically
+    if (leagues.length === 0) {
+      console.log('No leagues found, creating Louisville and Clarksville...')
+      const louisville = await prisma.league.upsert({
+        where: { name: 'Louisville' },
+        update: {},
+        create: {
+          name: 'Louisville',
+        },
+      })
+
+      const clarksville = await prisma.league.upsert({
+        where: { name: 'Clarksville' },
+        update: {},
+        create: {
+          name: 'Clarksville',
+        },
+      })
+
+      leagues = [louisville, clarksville]
+      console.log('Leagues created:', leagues)
+    }
+    
     return NextResponse.json(leagues)
   } catch (error: any) {
     console.error('Error fetching leagues:', error)
