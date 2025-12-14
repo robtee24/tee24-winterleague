@@ -70,12 +70,6 @@ export default function Home() {
             {leagues.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-600 mb-4">No leagues available</p>
-                <button
-                  onClick={() => router.push('/league-manager')}
-                  className="text-green-600 hover:text-green-700 underline"
-                >
-                  Go to Admin Portal
-                </button>
               </div>
             ) : (
               leagues.map((league) => (
