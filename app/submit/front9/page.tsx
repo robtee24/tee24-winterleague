@@ -29,7 +29,12 @@ function Front9PageContent() {
       .then(res => res.json())
       .then(players => {
         const player = players.find((p: any) => p.id === parsed.players[playerIndex])
-        if (player) setPlayerName(player.firstName)
+        if (player) {
+          const fullName = player.lastName 
+            ? `${player.firstName} ${player.lastName}` 
+            : player.firstName
+          setPlayerName(fullName)
+        }
       })
   }, [playerIndex, router])
 
