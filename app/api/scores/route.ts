@@ -332,12 +332,33 @@ export async function POST(request: Request) {
 
     // Convert scores to numbers and validate
     const numericScores = scores.map((s, i) => {
-      const num = typeof s === 'string' ? parseInt(s, 10) : Number(s)
-      if (isNaN(num)) {
-        console.warn(`Score at index ${i} is not a number:`, s)
+      // First, ensure we have a valid input
+      if (s === null || s === undefined || s === '') {
         return 0
       }
-      return num
+      
+      // If it's a string, remove any non-numeric characters first
+      let cleanValue = s
+      if (typeof s === 'string') {
+        cleanValue = s.replace(/[^0-9]/g, '')
+        if (cleanValue === '') {
+          console.warn(`Score at index ${i} contains no numbers:`, s)
+          return 0
+        }
+      }
+      
+      // Convert to number
+      const num = typeof cleanValue === 'string' ? parseInt(cleanValue, 10) : Number(cleanValue)
+      
+      // Validate it's a valid number
+      if (isNaN(num) || !isFinite(num)) {
+        console.warn(`Score at index ${i} is not a valid number:`, s)
+        return 0
+      }
+      
+      // Ensure it's a non-negative integer
+      const finalNum = Math.max(0, Math.floor(num))
+      return finalNum
     })
 
     // Calculate front 9, back 9, and total

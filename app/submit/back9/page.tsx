@@ -59,7 +59,17 @@ function Back9PageContent() {
       return
     }
 
-    const score = parseInt(numericValue)
+    // Parse as integer and ensure it's a valid number
+    const score = parseInt(numericValue, 10)
+    
+    // Validate it's a number and not NaN
+    if (isNaN(score) || !isFinite(score)) {
+      // If invalid, reset to 0
+      const newScores = [...scores]
+      newScores[index] = 0
+      setScores(newScores)
+      return
+    }
     
     // If score is over 15, show confirmation modal
     if (score > 15) {
@@ -72,6 +82,24 @@ function Back9PageContent() {
     const newScores = [...scores]
     newScores[index] = score
     setScores(newScores)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Allow: backspace, delete, tab, escape, enter, decimal point, and numbers
+    if ([46, 8, 9, 27, 13, 110, 190].indexOf(e.keyCode) !== -1 ||
+      // Allow: Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
+      (e.keyCode === 65 && e.ctrlKey === true) ||
+      (e.keyCode === 67 && e.ctrlKey === true) ||
+      (e.keyCode === 86 && e.ctrlKey === true) ||
+      (e.keyCode === 88 && e.ctrlKey === true) ||
+      // Allow: home, end, left, right
+      (e.keyCode >= 35 && e.keyCode <= 39)) {
+      return
+    }
+    // Ensure that it is a number and stop the keypress
+    if ((e.shiftKey || (e.keyCode < 48 || e.keyCode > 57)) && (e.keyCode < 96 || e.keyCode > 105)) {
+      e.preventDefault()
+    }
   }
 
   const confirmHighScore = () => {
@@ -94,11 +122,17 @@ function Back9PageContent() {
   }
 
   const handleNext = () => {
+    // Validate all scores are numbers
+    const validScores = scores.map(score => {
+      const num = typeof score === 'number' ? score : parseInt(String(score), 10)
+      return isNaN(num) || !isFinite(num) ? 0 : num
+    })
+    
     // Store back 9 scores
     const allScores = sessionStorage.getItem('allScores')
     const parsedScores = allScores ? JSON.parse(allScores) : []
     if (!parsedScores[playerIndex]) parsedScores[playerIndex] = {}
-    parsedScores[playerIndex].back9 = scores
+    parsedScores[playerIndex].back9 = validScores
     sessionStorage.setItem('allScores', JSON.stringify(parsedScores))
 
     router.push(`/submit/review?playerIndex=${playerIndex}`)
@@ -133,8 +167,17 @@ function Back9PageContent() {
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
-                    value={score || ''}
+                    value={score === 0 ? '' : score}
                     onChange={(e) => handleScoreChange(i, e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onPaste={(e) => {
+                      e.preventDefault()
+                      const pastedText = e.clipboardData.getData('text')
+                      const numericValue = pastedText.replace(/[^0-9]/g, '')
+                      if (numericValue) {
+                        handleScoreChange(i, numericValue)
+                      }
+                    }}
                     className={`w-full px-3 py-2 border rounded-lg text-center focus:ring-2 focus:ring-green-500 focus:border-transparent ${
                       isVeryHighScore 
                         ? 'border-red-500 bg-red-50' 
