@@ -35,6 +35,8 @@ function SubmitPageContent() {
   const [playerSearch, setPlayerSearch] = useState<string[]>([''])
   const [filteredPlayers, setFilteredPlayers] = useState<Player[][]>([[]])
   const [showDropdown, setShowDropdown] = useState<boolean[]>([])
+  const [duplicateErrors, setDuplicateErrors] = useState<{ [playerId: number]: { playerName: string; weekNumber: number } }>({})
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false)
 
   useEffect(() => {
     if (!leagueId) {
@@ -213,7 +215,78 @@ function SubmitPageContent() {
     createWeeks()
   }, [leagueId, weeks.length])
 
-  const canProceed = selectedPlayers[0] !== undefined && selectedPlayers[0] > 0 && selectedWeek !== null && selectedWeek !== '' && selectedWeek !== 0
+  // Check for duplicate scores when player or week changes
+  useEffect(() => {
+    const checkDuplicates = async () => {
+      if (!leagueId || !selectedWeek || selectedPlayers.length === 0 || selectedPlayers[0] === 0) {
+        setDuplicateErrors({})
+        return
+      }
+
+      setCheckingDuplicates(true)
+      const errors: { [playerId: number]: { playerName: string; weekNumber: number } } = {}
+
+      try {
+        // Determine week number
+        let weekNumber: number
+        if (typeof selectedWeek === 'string' && selectedWeek.startsWith('week-')) {
+          weekNumber = parseInt(selectedWeek.replace('week-', ''))
+        } else {
+          const weekId = typeof selectedWeek === 'string' ? parseInt(selectedWeek) : selectedWeek
+          const week = weeks.find(w => w.id === weekId)
+          weekNumber = week?.weekNumber || 0
+        }
+
+        if (weekNumber === 0) {
+          setDuplicateErrors({})
+          setCheckingDuplicates(false)
+          return
+        }
+
+        // Check each selected player
+        for (const playerId of selectedPlayers) {
+          if (playerId === 0) continue
+
+          const player = players.find(p => p.id === playerId)
+          if (!player) continue
+
+          // Check if this player already has a score for this week
+          const response = await fetch(`/api/scores?playerId=${playerId}&weekNumber=${weekNumber}&leagueId=${leagueId}`)
+          if (response.ok) {
+            const existingScores = await response.json()
+            if (Array.isArray(existingScores) && existingScores.length > 0) {
+              // Check if any score has a total (meaning it's a completed submission)
+              const hasCompletedScore = existingScores.some((score: any) => 
+                score.total !== null && score.total !== undefined
+              )
+              
+              if (hasCompletedScore) {
+                errors[playerId] = {
+                  playerName: `${player.firstName} ${player.lastName}`.trim(),
+                  weekNumber
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking for duplicate scores:', error)
+      }
+
+      setDuplicateErrors(errors)
+      setCheckingDuplicates(false)
+    }
+
+    checkDuplicates()
+  }, [selectedPlayers, selectedWeek, leagueId, players, weeks])
+
+  const canProceed = selectedPlayers[0] !== undefined && 
+                    selectedPlayers[0] > 0 && 
+                    selectedWeek !== null && 
+                    selectedWeek !== '' && 
+                    selectedWeek !== 0 &&
+                    Object.keys(duplicateErrors).length === 0 &&
+                    !checkingDuplicates
 
   return (
     <main className="min-h-screen p-8 bg-gray-50">
@@ -361,6 +434,25 @@ function SubmitPageContent() {
               })}
             </select>
           </div>
+
+          {/* Duplicate Score Errors */}
+          {Object.keys(duplicateErrors).length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-red-800 font-semibold mb-2">Duplicate Score Detected:</p>
+              <ul className="list-disc list-inside text-red-700 space-y-1">
+                {Object.entries(duplicateErrors).map(([playerId, error]) => (
+                  <li key={playerId}>
+                    {error.playerName} already has a score for Week {error.weekNumber}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-red-600 text-sm mt-2">Please select a different week or different player(s) to continue.</p>
+            </div>
+          )}
+
+          {checkingDuplicates && (
+            <div className="text-gray-600 text-sm">Checking for existing scores...</div>
+          )}
 
           {/* Next Button */}
           <button

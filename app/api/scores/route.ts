@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { processCompletedRound, calculateAppliedHandicap, ensureAllWeightedScores } from '@/lib/handicap-calculator'
+import { processCompletedRound, calculateAppliedHandicap, ensureAllWeightedScores, recalculateAllHandicaps } from '@/lib/handicap-calculator'
 
 /**
  * Check if a score has hole-by-hole data
@@ -511,13 +511,24 @@ export async function POST(request: Request) {
           await processCompletedRound(week.leagueId, week.weekNumber)
           console.log(`Successfully processed round ${week.weekNumber} for league ${week.leagueId}`)
           
+          // IMPORTANT: Recalculate ALL players' handicaps when the week is complete
+          // This ensures all players get their handicaps updated, not just the one who submitted
+          console.log(`Recalculating all handicaps for league ${week.leagueId}...`)
+          try {
+            await recalculateAllHandicaps(week.leagueId)
+            console.log(`Successfully recalculated all handicaps for league ${week.leagueId}`)
+          } catch (recalcError) {
+            console.error('Error recalculating all handicaps:', recalcError)
+            // Don't throw - continue with other processing
+          }
+          
           // Calculate matches for this week
           await calculateMatchesForWeek(parseInt(weekId))
           console.log(`Successfully calculated matches for week ${week.weekNumber}`)
 
           // If this is week 4 or later, calculate handicaps for next week
           // (Weeks 1-4 don't use progressive handicaps until after week 3)
-          // Note: processCompletedRound already handles handicap calculation, but we ensure next week's applied handicaps are set
+          // Note: recalculateAllHandicaps already handles this, but we ensure next week's applied handicaps are set
           if (week.weekNumber >= 4 && !week.isChampionship && week.weekNumber < 12) {
             const nextWeekNumber = week.weekNumber + 1
             // Find the next week
@@ -632,6 +643,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const weekId = searchParams.get('weekId')
+    const weekNumber = searchParams.get('weekNumber')
     const playerId = searchParams.get('playerId')
     const leagueId = searchParams.get('leagueId')
 
@@ -640,6 +652,15 @@ export async function GET(request: Request) {
     if (playerId) where.playerId = parseInt(playerId)
     if (leagueId) {
       where.player = { leagueId: parseInt(leagueId) }
+    }
+    if (weekNumber) {
+      where.week = {
+        weekNumber: parseInt(weekNumber),
+        isChampionship: false
+      }
+      if (leagueId) {
+        where.week.leagueId = parseInt(leagueId)
+      }
     }
 
     const scores = await prisma.score.findMany({

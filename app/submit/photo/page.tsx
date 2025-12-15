@@ -183,8 +183,15 @@ export default function PhotoPage() {
               type="file"
               accept="image/*"
               onChange={handleFileChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              id="photo-upload"
+              style={{ display: 'none' }}
             />
+            <label
+              htmlFor="photo-upload"
+              className="block w-full px-4 py-2 border border-gray-300 rounded-lg cursor-pointer text-center bg-white hover:bg-gray-50 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            >
+              Choose Photo from Library or Take Photo
+            </label>
             {preview && (
               <div className="mt-4">
                 <Image

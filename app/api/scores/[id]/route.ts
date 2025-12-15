@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { processCompletedRound, calculateAppliedHandicap, ensureAllWeightedScores } from '@/lib/handicap-calculator'
+import { processCompletedRound, calculateAppliedHandicap, ensureAllWeightedScores, recalculateAllHandicaps } from '@/lib/handicap-calculator'
 
 /**
  * Calculate Best Ball Match Play score
@@ -387,6 +387,17 @@ export async function PATCH(
             // Process the round to calculate raw handicaps and update handicaps
             await processCompletedRound(score.week.league.id, score.week.weekNumber)
             console.log(`Successfully processed round ${score.week.weekNumber} for league ${score.week.league.id}`)
+            
+            // IMPORTANT: Recalculate ALL players' handicaps when the week is complete
+            // This ensures all players get their handicaps updated, not just the one who submitted
+            console.log(`Recalculating all handicaps for league ${score.week.league.id}...`)
+            try {
+              await recalculateAllHandicaps(score.week.league.id)
+              console.log(`Successfully recalculated all handicaps for league ${score.week.league.id}`)
+            } catch (recalcError) {
+              console.error('Error recalculating all handicaps:', recalcError)
+              // Don't throw - continue with other processing
+            }
             
             // Calculate matches for this week
             await calculateMatchesForWeek(existingScore.weekId)
