@@ -1164,7 +1164,7 @@ export default function PlayerPage() {
                     Submit Default Score
                   </button>
                 )}
-                {editingScore.id !== 0 && (
+                {editingScore && editingScore.id && editingScore.id !== 0 && (
                   <button
                     onClick={async () => {
                       if (!confirm(`Are you sure you want to delete all scores for Week ${editingScore.week.weekNumber}? This action cannot be undone.`)) {
