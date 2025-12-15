@@ -71,3 +71,79 @@ export async function PATCH(
     return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const playerId = parseInt(params.id)
+    
+    // Check if player exists
+    const player = await prisma.player.findUnique({
+      where: { id: playerId }
+    })
+    
+    if (!player) {
+      return NextResponse.json({ error: 'Player not found' }, { status: 404 })
+    }
+
+    // Delete in order to respect foreign key constraints
+    // 1. Delete all scores for this player
+    await prisma.score.deleteMany({
+      where: { playerId }
+    })
+
+    // 2. Delete all handicaps for this player
+    await prisma.handicap.deleteMany({
+      where: { playerId }
+    })
+
+    // 3. Delete matches where this player's teams are involved
+    // First, get all teams this player is on
+    const playerTeams = await prisma.team.findMany({
+      where: {
+        OR: [
+          { player1Id: playerId },
+          { player2Id: playerId }
+        ]
+      }
+    })
+
+    const teamIds = playerTeams.map(t => t.id)
+
+    // Delete matches involving these teams
+    await prisma.match.deleteMany({
+      where: {
+        OR: [
+          { team1Id: { in: teamIds } },
+          { team2Id: { in: teamIds } }
+        ]
+      }
+    })
+
+    // 4. Delete teams where this player is a member
+    await prisma.team.deleteMany({
+      where: {
+        OR: [
+          { player1Id: playerId },
+          { player2Id: playerId }
+        ]
+      }
+    })
+
+    // 5. Finally, delete the player
+    await prisma.player.delete({
+      where: { id: playerId }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      message: 'Player deleted successfully' 
+    })
+  } catch (error: any) {
+    console.error('Error deleting player:', error)
+    const errorMessage = error?.message || 'Failed to delete player'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
+  }
+}
