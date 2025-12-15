@@ -70,6 +70,7 @@ export default function LeagueSetupPage() {
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null)
   const [selectedOpponent, setSelectedOpponent] = useState<string>('')
   const [recalculating, setRecalculating] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
     if (!leagueId) {
@@ -560,6 +561,39 @@ export default function LeagueSetupPage() {
     }
   }
 
+  const handleClearAllData = async () => {
+    if (!confirm('⚠️ WARNING: This will permanently delete ALL players and scores from the database. This action cannot be undone. Are you absolutely sure?')) {
+      return
+    }
+
+    if (!confirm('This is your last chance. Click OK to permanently delete all players and scores.')) {
+      return
+    }
+
+    setClearing(true)
+    try {
+      const response = await fetch('/api/admin/clear-data', {
+        method: 'POST'
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to clear data')
+      }
+
+      alert(`Successfully cleared all data!\n\nDeleted:\n- ${data.summary.players} players\n- ${data.summary.scores} scores\n- ${data.summary.handicaps} handicaps\n- ${data.summary.teams} teams\n- ${data.summary.matches} matches\n\nThe page will refresh.`)
+      setTimeout(() => {
+        loadData()
+      }, 500)
+    } catch (error: any) {
+      console.error('Error clearing data:', error)
+      alert(`Failed to clear data: ${error.message || 'Unknown error'}`)
+    } finally {
+      setClearing(false)
+    }
+  }
+
   const handleCreateMatch = async () => {
     if (!leagueId || !selectedWeek || !selectedTeam || !selectedOpponent) return
 
@@ -658,17 +692,30 @@ export default function LeagueSetupPage() {
         </button>
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-black">League Setup</h1>
-          <button
-            onClick={handleRecalculateHandicaps}
-            disabled={recalculating}
-            className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
-              recalculating
-                ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                : 'bg-orange-600 text-white hover:bg-orange-700'
-            }`}
-          >
-            {recalculating ? 'Recalculating...' : 'Recalculate Handicaps'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleRecalculateHandicaps}
+              disabled={recalculating || clearing}
+              className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
+                recalculating || clearing
+                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                  : 'bg-orange-600 text-white hover:bg-orange-700'
+              }`}
+            >
+              {recalculating ? 'Recalculating...' : 'Recalculate Handicaps'}
+            </button>
+            <button
+              onClick={handleClearAllData}
+              disabled={recalculating || clearing}
+              className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
+                recalculating || clearing
+                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                  : 'bg-red-600 text-white hover:bg-red-700'
+              }`}
+            >
+              {clearing ? 'Clearing...' : 'Clear All Data'}
+            </button>
+          </div>
         </div>
 
         {/* Set Roster Section */}
