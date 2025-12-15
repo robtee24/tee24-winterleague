@@ -112,16 +112,25 @@ export default function PhotoPage() {
     setShowModal(true)
   }
 
-  const handleCloseModal = () => {
+  const handleCloseModal = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
     if (!uploading) {
       setShowModal(false)
     }
   }
 
-  const handleSubmitWithoutPhoto = async (e?: React.MouseEvent) => {
+  const handleSubmitWithoutPhoto = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    console.log('handleSubmitWithoutPhoto called', { uploading, hasSubmissionData: !!submissionData })
+
     // Prevent double-clicks
     if (uploading) {
-      e?.preventDefault()
+      console.log('Already uploading, ignoring click')
       return
     }
 
@@ -131,8 +140,8 @@ export default function PhotoPage() {
       return
     }
 
+    console.log('Starting submission without photo')
     setUploading(true)
-    setShowModal(false) // Close modal immediately to prevent double-clicks
 
     try {
       // Use weekId directly from submission data
@@ -190,12 +199,14 @@ export default function PhotoPage() {
       sessionStorage.removeItem('submissionData')
       sessionStorage.removeItem('allScores')
 
+      // Close modal and navigate only after successful submission
+      setShowModal(false)
       router.push('/submit/success')
     } catch (error: any) {
       console.error('Error submitting scores:', error)
       const errorMessage = error?.message || 'Error submitting scores. Please try again.'
       alert(`Error: ${errorMessage}`)
-      setShowModal(true) // Reopen modal on error so user can try again
+      // Keep modal open on error so user can try again
     } finally {
       setUploading(false)
     }
@@ -260,6 +271,7 @@ export default function PhotoPage() {
 
           <button
             onClick={handleNoPhoto}
+            type="button"
             className="w-full py-3 px-6 bg-gray-200 text-gray-700 rounded-lg font-semibold text-lg hover:bg-gray-300 transition-colors"
           >
             I don&apos;t have one
@@ -270,7 +282,11 @@ export default function PhotoPage() {
         {showModal && (
           <div 
             className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-            onClick={handleCloseModal}
+            onClick={(e) => {
+              if (!uploading && e.target === e.currentTarget) {
+                handleCloseModal(e as any)
+              }
+            }}
           >
             <div 
               className="bg-white rounded-lg p-6 max-w-md mx-4"
@@ -284,8 +300,13 @@ export default function PhotoPage() {
               </p>
               <div className="flex gap-2">
                 <button
-                  onClick={handleCloseModal}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleCloseModal(e)
+                  }}
                   disabled={uploading}
+                  type="button"
                   className={`flex-1 py-3 px-6 rounded-lg font-semibold text-lg transition-colors ${
                     uploading
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
@@ -295,7 +316,11 @@ export default function PhotoPage() {
                   Cancel
                 </button>
                 <button
-                  onClick={handleSubmitWithoutPhoto}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleSubmitWithoutPhoto(e)
+                  }}
                   disabled={uploading}
                   type="button"
                   className={`flex-1 py-3 px-6 rounded-lg font-semibold text-lg transition-colors ${
