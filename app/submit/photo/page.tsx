@@ -48,9 +48,16 @@ export default function PhotoPage() {
       })
       
       if (!uploadRes.ok) {
-        const error = await uploadRes.json()
-        console.error('Upload error:', error)
-        throw new Error(error.error || 'Failed to upload image')
+        let errorMessage = 'Failed to upload image'
+        try {
+          const error = await uploadRes.json()
+          errorMessage = error.error || errorMessage
+        } catch (e) {
+          // If response is not JSON, use status text
+          errorMessage = uploadRes.statusText || errorMessage
+        }
+        console.error('Upload error:', errorMessage)
+        throw new Error(errorMessage)
       }
       
       const uploadData = await uploadRes.json()
@@ -63,13 +70,37 @@ export default function PhotoPage() {
       // Use weekId directly from submission data
       const weekId = submissionData.weekId
 
+      if (!weekId) {
+        throw new Error('Week ID is missing from submission data')
+      }
+
       // Submit all scores
       const allScores = JSON.parse(sessionStorage.getItem('allScores') || '[]')
       
+      if (!Array.isArray(allScores) || allScores.length === 0) {
+        throw new Error('No scores found in submission data')
+      }
+      
+      if (allScores.length !== submissionData.players.length) {
+        throw new Error('Number of score sets does not match number of players')
+      }
+      
       for (let i = 0; i < submissionData.players.length; i++) {
         const playerId = submissionData.players[i]
+        if (!playerId) {
+          throw new Error(`Missing player ID at index ${i}`)
+        }
+
         const playerScores = allScores[i]
+        if (!playerScores) {
+          throw new Error(`Missing scores for player at index ${i}`)
+        }
+
         const combinedScores = [...(playerScores.front9 || []), ...(playerScores.back9 || [])]
+        
+        if (combinedScores.length === 0) {
+          throw new Error(`No scores found for player at index ${i}`)
+        }
 
         const scoreRes = await fetch('/api/scores', {
           method: 'POST',
@@ -83,9 +114,16 @@ export default function PhotoPage() {
         })
         
         if (!scoreRes.ok) {
-          const error = await scoreRes.json()
-          console.error('Score creation error:', error)
-          throw new Error(error.error || 'Failed to save score')
+          let errorMessage = 'Failed to save score'
+          try {
+            const error = await scoreRes.json()
+            errorMessage = error.error || errorMessage
+          } catch (e) {
+            // If response is not JSON, use status text
+            errorMessage = scoreRes.statusText || errorMessage
+          }
+          console.error('Score creation error:', errorMessage)
+          throw new Error(errorMessage)
         }
         
         const savedScore = await scoreRes.json()
@@ -295,6 +333,9 @@ export default function PhotoPage() {
           >
             I don&apos;t have one
           </button>
+          <p className="text-sm text-gray-600 mt-4 text-center">
+            In the event of an issue text your score to <a href="tel:5022001044" className="text-blue-600 hover:underline">502-200-1044</a>
+          </p>
         </div>
 
         {/* Modal */}
