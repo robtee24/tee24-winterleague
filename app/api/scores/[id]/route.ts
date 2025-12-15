@@ -475,3 +475,50 @@ export async function PATCH(
   }
 }
 
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const scoreId = parseInt(params.id)
+    
+    // Get the score to find the weekId for recalculation
+    const score = await prisma.score.findUnique({
+      where: { id: scoreId },
+      include: {
+        week: true,
+        player: true
+      }
+    })
+
+    if (!score) {
+      return NextResponse.json({ error: 'Score not found' }, { status: 404 })
+    }
+
+    const weekId = score.weekId
+    const leagueId = score.player.leagueId
+
+    // Delete the score
+    await prisma.score.delete({
+      where: { id: scoreId }
+    })
+
+    // Recalculate handicaps for the league after deletion
+    try {
+      await recalculateAllHandicaps(leagueId)
+    } catch (recalcError) {
+      console.error('Error recalculating handicaps after score deletion:', recalcError)
+      // Don't fail the deletion if recalculation fails
+    }
+
+    return NextResponse.json({ 
+      success: true,
+      message: 'Score deleted successfully' 
+    })
+  } catch (error: any) {
+    console.error('Error deleting score:', error)
+    const errorMessage = error?.message || 'Failed to delete score'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
+  }
+}
+

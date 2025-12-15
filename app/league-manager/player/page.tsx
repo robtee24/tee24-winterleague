@@ -1164,6 +1164,36 @@ export default function PlayerPage() {
                     Submit Default Score
                   </button>
                 )}
+                {editingScore.id !== 0 && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Are you sure you want to delete all scores for Week ${editingScore.week.weekNumber}? This action cannot be undone.`)) {
+                        return
+                      }
+
+                      try {
+                        const response = await fetch(`/api/scores/${editingScore.id}`, {
+                          method: 'DELETE'
+                        })
+
+                        if (!response.ok) {
+                          const error = await response.json()
+                          throw new Error(error.error || 'Failed to delete score')
+                        }
+
+                        setEditingScore(null)
+                        loadData()
+                        alert('Score deleted successfully')
+                      } catch (error: any) {
+                        console.error('Error deleting score:', error)
+                        alert(`Failed to delete score: ${error.message || 'Unknown error'}`)
+                      }
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Delete All Scores
+                  </button>
+                )}
                 <button
                   onClick={() => setEditingScore(null)}
                   className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
