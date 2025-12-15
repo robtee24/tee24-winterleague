@@ -112,22 +112,62 @@ export default function PhotoPage() {
     setShowModal(true)
   }
 
-  const handleSubmitWithoutPhoto = async () => {
-    if (!submissionData) return
+  const handleCloseModal = () => {
+    if (!uploading) {
+      setShowModal(false)
+    }
+  }
+
+  const handleSubmitWithoutPhoto = async (e?: React.MouseEvent) => {
+    // Prevent double-clicks
+    if (uploading) {
+      e?.preventDefault()
+      return
+    }
+
+    if (!submissionData) {
+      console.error('No submission data found')
+      alert('Error: Missing submission data. Please go back and try again.')
+      return
+    }
 
     setUploading(true)
+    setShowModal(false) // Close modal immediately to prevent double-clicks
 
     try {
       // Use weekId directly from submission data
       const weekId = submissionData.weekId
 
+      if (!weekId) {
+        throw new Error('Week ID is missing from submission data')
+      }
+
       // Submit all scores
       const allScores = JSON.parse(sessionStorage.getItem('allScores') || '[]')
       
+      if (!Array.isArray(allScores) || allScores.length === 0) {
+        throw new Error('No scores found in submission data')
+      }
+
       for (let i = 0; i < submissionData.players.length; i++) {
         const playerId = submissionData.players[i]
+        if (!playerId) {
+          console.error(`Missing player ID at index ${i}`)
+          continue
+        }
+
         const playerScores = allScores[i]
+        if (!playerScores) {
+          console.error(`Missing scores for player at index ${i}`)
+          continue
+        }
+
         const combinedScores = [...(playerScores.front9 || []), ...(playerScores.back9 || [])]
+
+        if (combinedScores.length === 0) {
+          console.error(`No scores found for player ${playerId}`)
+          continue
+        }
 
         const scoreRes = await fetch('/api/scores', {
           method: 'POST',
@@ -142,7 +182,7 @@ export default function PhotoPage() {
         
         if (!scoreRes.ok) {
           const error = await scoreRes.json()
-          throw new Error(error.error || 'Failed to save score')
+          throw new Error(error.error || `Failed to save score for player ${playerId}`)
         }
       }
 
@@ -150,12 +190,12 @@ export default function PhotoPage() {
       sessionStorage.removeItem('submissionData')
       sessionStorage.removeItem('allScores')
 
-      setShowModal(false)
       router.push('/submit/success')
     } catch (error: any) {
       console.error('Error submitting scores:', error)
       const errorMessage = error?.message || 'Error submitting scores. Please try again.'
       alert(`Error: ${errorMessage}`)
+      setShowModal(true) // Reopen modal on error so user can try again
     } finally {
       setUploading(false)
     }
@@ -228,25 +268,45 @@ export default function PhotoPage() {
 
         {/* Modal */}
         {showModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            onClick={handleCloseModal}
+          >
+            <div 
+              className="bg-white rounded-lg p-6 max-w-md mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
               <h2 className="text-2xl font-bold mb-4 text-gray-800">
                 No Scorecard Photo
               </h2>
               <p className="text-gray-600 mb-6">
                 In the future, please be sure to take a picture of your scorecard.
               </p>
-              <button
-                onClick={handleSubmitWithoutPhoto}
-                disabled={uploading}
-                className={`w-full py-3 px-6 rounded-lg font-semibold text-lg transition-colors ${
-                  uploading
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
-              >
-                {uploading ? 'Submitting...' : 'Submit scores without scorecard'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCloseModal}
+                  disabled={uploading}
+                  className={`flex-1 py-3 px-6 rounded-lg font-semibold text-lg transition-colors ${
+                    uploading
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmitWithoutPhoto}
+                  disabled={uploading}
+                  type="button"
+                  className={`flex-1 py-3 px-6 rounded-lg font-semibold text-lg transition-colors ${
+                    uploading
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                  }`}
+                >
+                  {uploading ? 'Submitting...' : 'Submit'}
+                </button>
+              </div>
             </div>
           </div>
         )}
