@@ -1,6 +1,29 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const playerId = parseInt(params.id)
+    
+    const player = await prisma.player.findUnique({
+      where: { id: playerId }
+    })
+    
+    if (!player) {
+      return NextResponse.json({ error: 'Player not found' }, { status: 404 })
+    }
+    
+    return NextResponse.json(player)
+  } catch (error: any) {
+    console.error('Error fetching player:', error)
+    const errorMessage = error?.message || 'Failed to fetch player'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
+  }
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
