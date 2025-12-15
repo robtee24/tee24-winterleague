@@ -120,26 +120,21 @@ export default function LeaderboardPage() {
   const getPlayerTotal = (playerId: number) => {
     const playerScores = scores.filter(s => s.playerId === playerId)
     return playerScores.reduce((sum, score) => {
+      const weekNum = getWeekNumberForDisplay(score.week)
+      
+      // For Handicapped Scores tab, only include weeks where all players have submitted
+      if (activeTab === 'weighted') {
+        const allSubmitted = allPlayersSubmittedForWeek(weekNum)
+        if (!allSubmitted) {
+          return sum // Skip this week if not all players submitted
+        }
+      }
+      
       const value = activeTab === 'weighted' 
         ? (score.weightedScore || 0)
         : (score.total || 0)
       return sum + value
     }, 0)
-  }
-
-  // Find the last week that has been played (highest week number with at least one score)
-  const getLastPlayedWeek = (): number | null => {
-    if (scores.length === 0) return null
-    
-    let maxWeek = 0
-    scores.forEach(score => {
-      const weekNum = getWeekNumberForDisplay(score.week)
-      if (weekNum > maxWeek) {
-        maxWeek = weekNum
-      }
-    })
-    
-    return maxWeek > 0 ? maxWeek : null
   }
 
   // Get a player's score for a specific week
@@ -208,19 +203,9 @@ export default function LeaderboardPage() {
     return playersWithScores.size === players.length
   }
 
-  // Sort players by score in the last played week
-  const lastPlayedWeek = getLastPlayedWeek()
+  // Sort players by total of completed weeks (lowest to highest)
+  // For Handicapped Scores, only count weeks where all players submitted
   const sortedPlayers = [...players].sort((a, b) => {
-    if (!lastPlayedWeek) {
-      // If no week has been played, sort by total
-      const totalA = getPlayerTotal(a.id)
-      const totalB = getPlayerTotal(b.id)
-      return totalA - totalB
-    }
-
-    const scoreA = getPlayerScoreForWeek(a.id, lastPlayedWeek)
-    const scoreB = getPlayerScoreForWeek(b.id, lastPlayedWeek)
-
     // Check if players have any scores at all
     const hasAnyScoresA = scores.some(s => s.playerId === a.id)
     const hasAnyScoresB = scores.some(s => s.playerId === b.id)
@@ -230,13 +215,10 @@ export default function LeaderboardPage() {
     if (!hasAnyScoresA) return 1 // a goes to bottom
     if (!hasAnyScoresB) return -1 // b goes to bottom
 
-    // Players without a score for the last week go below those with scores
-    if (scoreA === null && scoreB === null) return 0
-    if (scoreA === null) return 1 // a goes to bottom
-    if (scoreB === null) return -1 // b goes to bottom
-
-    // Sort by score (lowest = best)
-    return scoreA - scoreB
+    // Sort by total of completed weeks (lowest = best)
+    const totalA = getPlayerTotal(a.id)
+    const totalB = getPlayerTotal(b.id)
+    return totalA - totalB
   })
 
   const getTeamRecord = (teamId: number): { wins: number; losses: number } => {
@@ -397,9 +379,14 @@ export default function LeaderboardPage() {
               <tbody>
                 {sortedPlayers.map((player, index) => {
                   const playerScores = getPlayerScores(player.id)
-                  // Only highlight first place if they have a score for the last week
-                  const hasScoreForLastWeek = lastPlayedWeek ? getPlayerScoreForWeek(player.id, lastPlayedWeek) !== null : false
-                  const isFirstPlace = index === 0 && hasScoreForLastWeek
+                  // Highlight first place if they have the lowest total and have at least one completed week score
+                  const hasCompletedWeekScore = activeTab === 'weighted'
+                    ? scores.some(s => {
+                        const weekNum = getWeekNumberForDisplay(s.week)
+                        return s.playerId === player.id && allPlayersSubmittedForWeek(weekNum)
+                      })
+                    : scores.some(s => s.playerId === player.id && s.total !== null)
+                  const isFirstPlace = index === 0 && hasCompletedWeekScore
                   return (
                     <tr key={player.id} className={isFirstPlace ? 'bg-yellow-50' : ''}>
                       <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
