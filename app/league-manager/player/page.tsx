@@ -86,6 +86,8 @@ export default function PlayerPage() {
   const [deleting, setDeleting] = useState(false)
   const [editingContact, setEditingContact] = useState(false)
   const [contactInfo, setContactInfo] = useState({ phone: '', email: '' })
+  const [editingName, setEditingName] = useState(false)
+  const [nameInfo, setNameInfo] = useState({ firstName: '', lastName: '' })
   const [teams, setTeams] = useState<Array<{
     id: number
     teamNumber: number
@@ -118,6 +120,10 @@ export default function PlayerPage() {
           setContactInfo({
             phone: found.phone || '',
             email: found.email || ''
+          })
+          setNameInfo({
+            firstName: found.firstName || '',
+            lastName: found.lastName || ''
           })
         }
       })
@@ -247,6 +253,39 @@ export default function PlayerPage() {
 
   if (!player) return <div>Loading...</div>
 
+  const handleUpdateName = async () => {
+    if (!playerId || !leagueId) return
+
+    if (!nameInfo.firstName.trim()) {
+      alert('First name is required')
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/players/${playerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: nameInfo.firstName.trim(),
+          lastName: nameInfo.lastName.trim() || null
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update name')
+      }
+
+      setPlayer(data)
+      setEditingName(false)
+      loadData() // Reload to ensure all data is fresh
+    } catch (error: any) {
+      console.error('Error updating name:', error)
+      alert(`Failed to update name: ${error.message || 'Unknown error'}`)
+    }
+  }
+
   const handleUpdateContact = async () => {
     if (!playerId || !leagueId) return
 
@@ -375,9 +414,60 @@ export default function PlayerPage() {
             Delete Member
           </button>
         </div>
-        <h1 className="text-3xl font-bold mb-8 text-black">
-          {player.firstName} {player.lastName}
-        </h1>
+        <div className="flex items-center gap-3 mb-8">
+          {editingName ? (
+            <div className="flex items-center gap-3 flex-1">
+              <input
+                type="text"
+                value={nameInfo.firstName}
+                onChange={(e) => setNameInfo({ ...nameInfo, firstName: e.target.value })}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-3xl font-bold"
+                placeholder="First Name"
+                autoFocus
+              />
+              <input
+                type="text"
+                value={nameInfo.lastName}
+                onChange={(e) => setNameInfo({ ...nameInfo, lastName: e.target.value })}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-3xl font-bold"
+                placeholder="Last Name"
+              />
+              <button
+                onClick={handleUpdateName}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => {
+                  setEditingName(false)
+                  setNameInfo({
+                    firstName: player.firstName || '',
+                    lastName: player.lastName || ''
+                  })
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <>
+              <h1 className="text-3xl font-bold text-black">
+                {player.firstName} {player.lastName}
+              </h1>
+              <button
+                onClick={() => setEditingName(true)}
+                className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                title="Edit name"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+            </>
+          )}
+        </div>
 
         {/* Contact Information Section */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
