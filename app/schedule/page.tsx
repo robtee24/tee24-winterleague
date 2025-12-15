@@ -164,7 +164,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(1)}</p>
               </div>
               {getCourseName(1) && (
-                <p className="text-gray-700 mt-2">{getCourseName(1)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(1)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -175,7 +182,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(2)}</p>
               </div>
               {getCourseName(2) && (
-                <p className="text-gray-700 mt-2">{getCourseName(2)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(2)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -186,7 +200,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(3)}</p>
               </div>
               {getCourseName(3) && (
-                <p className="text-gray-700 mt-2">{getCourseName(3)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(3)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -206,7 +227,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(4)}</p>
               </div>
               {getCourseName(4) && (
-                <p className="text-gray-700 mt-2">{getCourseName(4)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(4)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -217,7 +245,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(5)}</p>
               </div>
               {getCourseName(5) && (
-                <p className="text-gray-700 mt-2">{getCourseName(5)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(5)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -228,7 +263,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(6)}</p>
               </div>
               {getCourseName(6) && (
-                <p className="text-gray-700 mt-2">{getCourseName(6)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(6)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -239,7 +281,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(7)}</p>
               </div>
               {getCourseName(7) && (
-                <p className="text-gray-700 mt-2">{getCourseName(7)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(7)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -250,7 +299,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(8)}</p>
               </div>
               {getCourseName(8) && (
-                <p className="text-gray-700 mt-2">{getCourseName(8)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(8)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -261,7 +317,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(9)}</p>
               </div>
               {getCourseName(9) && (
-                <p className="text-gray-700 mt-2">{getCourseName(9)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(9)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -272,7 +335,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(10)}</p>
               </div>
               {getCourseName(10) && (
-                <p className="text-gray-700 mt-2">{getCourseName(10)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(10)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
             </div>
 
@@ -292,7 +362,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(11)}</p>
               </div>
               {getCourseName(11) && (
-                <p className="text-gray-700 mt-2">{getCourseName(11)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(11)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
               <p className="text-sm text-gray-600 mt-2 italic">
                 League Championship for Individual Play
@@ -306,7 +383,14 @@ export default function SchedulePage() {
                 <p className="text-gray-600">{getWeekDateRange(12)}</p>
               </div>
               {getCourseName(12) && (
-                <p className="text-gray-700 mt-2">{getCourseName(12)}</p>
+                <>
+                  <p className="text-gray-700 mt-2">{getCourseName(12)}</p>
+                  <div className="text-sm text-gray-600 mt-1 ml-2">
+                    <p className="font-semibold">Tees:</p>
+                    <p>Under 65 years old = 2nd to last tees</p>
+                    <p>Over 65 years old = 2nd to front</p>
+                  </div>
+                </>
               )}
               <p className="text-sm text-gray-600 mt-2 italic">
                 League Championship for Individual Play / Championship Round for Team Play
