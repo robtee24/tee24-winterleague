@@ -49,9 +49,10 @@ function Back9PageContent() {
   }, [playerIndex, router])
 
   const handleScoreChange = (index: number, value: string) => {
-    // Only allow numbers - remove any non-numeric characters
+    // Only allow numbers - remove any non-numeric characters immediately
     const numericValue = value.replace(/[^0-9]/g, '')
     
+    // If empty after stripping, set to 0
     if (numericValue === '') {
       const newScores = [...scores]
       newScores[index] = 0
@@ -59,11 +60,11 @@ function Back9PageContent() {
       return
     }
 
-    // Parse as integer and ensure it's a valid number
+    // Parse as integer and ensure it's a valid positive integer
     const score = parseInt(numericValue, 10)
     
-    // Validate it's a number and not NaN
-    if (isNaN(score) || !isFinite(score)) {
+    // Strict validation: must be a valid finite positive integer
+    if (isNaN(score) || !isFinite(score) || score < 0) {
       // If invalid, reset to 0
       const newScores = [...scores]
       newScores[index] = 0
@@ -71,22 +72,25 @@ function Back9PageContent() {
       return
     }
     
+    // Ensure it's stored as a number, not a string
+    const numericScore = Number(score)
+    
     // If score is over 15, show confirmation modal
-    if (score > 15) {
-      setPendingScore({ index, value: score })
-      setHighScoreModal({ show: true, hole: index + 10, score })
+    if (numericScore > 15) {
+      setPendingScore({ index, value: numericScore })
+      setHighScoreModal({ show: true, hole: index + 10, score: numericScore })
       return
     }
 
-    // Otherwise, update the score
+    // Otherwise, update the score (ensuring it's a number)
     const newScores = [...scores]
-    newScores[index] = score
+    newScores[index] = numericScore
     setScores(newScores)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Allow: backspace, delete, tab, escape, enter, decimal point, and numbers
-    if ([46, 8, 9, 27, 13, 110, 190].indexOf(e.keyCode) !== -1 ||
+    // Allow: backspace, delete, tab, escape, enter (but NOT decimal points)
+    if ([46, 8, 9, 27, 13].indexOf(e.keyCode) !== -1 ||
       // Allow: Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
       (e.keyCode === 65 && e.ctrlKey === true) ||
       (e.keyCode === 67 && e.ctrlKey === true) ||
@@ -94,6 +98,11 @@ function Back9PageContent() {
       (e.keyCode === 88 && e.ctrlKey === true) ||
       // Allow: home, end, left, right
       (e.keyCode >= 35 && e.keyCode <= 39)) {
+      return
+    }
+    // Block decimal points and any non-numeric characters
+    if (e.keyCode === 110 || e.keyCode === 190 || e.key === '.' || e.key === ',') {
+      e.preventDefault()
       return
     }
     // Ensure that it is a number and stop the keypress
@@ -122,10 +131,19 @@ function Back9PageContent() {
   }
 
   const handleNext = () => {
-    // Validate all scores are numbers
-    const validScores = scores.map(score => {
-      const num = typeof score === 'number' ? score : parseInt(String(score), 10)
-      return isNaN(num) || !isFinite(num) ? 0 : num
+    // Strictly validate all scores are numbers - convert any strings to numbers
+    const validScores = scores.map((score, index) => {
+      // If it's already a number, validate it
+      if (typeof score === 'number') {
+        return isNaN(score) || !isFinite(score) || score < 0 ? 0 : Math.floor(score)
+      }
+      // If it's a string, try to parse it
+      if (typeof score === 'string') {
+        const numeric = parseInt(score.replace(/[^0-9]/g, ''), 10)
+        return isNaN(numeric) || !isFinite(numeric) || numeric < 0 ? 0 : numeric
+      }
+      // Default to 0 for any other type
+      return 0
     })
     
     // Store back 9 scores

@@ -96,7 +96,16 @@ export default function PhotoPage() {
           throw new Error(`Missing scores for player at index ${i}`)
         }
 
-        const combinedScores = [...(playerScores.front9 || []), ...(playerScores.back9 || [])]
+        // Validate and sanitize scores - ensure all are numbers
+        const front9 = (playerScores.front9 || []).map((s: any) => {
+          const num = typeof s === 'number' ? s : parseInt(String(s).replace(/[^0-9]/g, ''), 10)
+          return isNaN(num) || !isFinite(num) || num < 0 ? 0 : Math.floor(num)
+        })
+        const back9 = (playerScores.back9 || []).map((s: any) => {
+          const num = typeof s === 'number' ? s : parseInt(String(s).replace(/[^0-9]/g, ''), 10)
+          return isNaN(num) || !isFinite(num) || num < 0 ? 0 : Math.floor(num)
+        })
+        const combinedScores = [...front9, ...back9]
         
         if (combinedScores.length === 0) {
           throw new Error(`No scores found for player at index ${i}`)
@@ -209,7 +218,16 @@ export default function PhotoPage() {
           continue
         }
 
-        const combinedScores = [...(playerScores.front9 || []), ...(playerScores.back9 || [])]
+        // Validate and sanitize scores - ensure all are numbers
+        const front9 = (playerScores.front9 || []).map((s: any) => {
+          const num = typeof s === 'number' ? s : parseInt(String(s).replace(/[^0-9]/g, ''), 10)
+          return isNaN(num) || !isFinite(num) || num < 0 ? 0 : Math.floor(num)
+        })
+        const back9 = (playerScores.back9 || []).map((s: any) => {
+          const num = typeof s === 'number' ? s : parseInt(String(s).replace(/[^0-9]/g, ''), 10)
+          return isNaN(num) || !isFinite(num) || num < 0 ? 0 : Math.floor(num)
+        })
+        const combinedScores = [...front9, ...back9]
 
         if (combinedScores.length === 0) {
           console.error(`No scores found for player ${playerId}`)
