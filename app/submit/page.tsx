@@ -94,7 +94,11 @@ function SubmitPageContent() {
     setSelectedPlayers(newSelected)
 
     const newSearch = [...playerSearch]
-    newSearch[index] = player.firstName
+    // Show full name (first + last) in the input box
+    const fullName = player.lastName 
+      ? `${player.firstName} ${player.lastName}` 
+      : player.firstName
+    newSearch[index] = fullName
     setPlayerSearch(newSearch)
 
     const newShow = [...showDropdown]
