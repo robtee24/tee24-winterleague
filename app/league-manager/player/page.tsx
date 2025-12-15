@@ -254,7 +254,7 @@ export default function PlayerPage() {
   if (!player) return <div>Loading...</div>
 
   const handleUpdateName = async () => {
-    if (!playerId || !leagueId) return
+    if (!playerId || !leagueId || !player) return
 
     if (!nameInfo.firstName.trim()) {
       alert('First name is required')
@@ -267,7 +267,10 @@ export default function PlayerPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           firstName: nameInfo.firstName.trim(),
-          lastName: nameInfo.lastName.trim() || null
+          lastName: nameInfo.lastName.trim() || null,
+          // Preserve existing phone and email
+          phone: player.phone || null,
+          email: player.email || null
         })
       })
 
@@ -287,13 +290,17 @@ export default function PlayerPage() {
   }
 
   const handleUpdateContact = async () => {
-    if (!playerId || !leagueId) return
+    if (!playerId || !leagueId || !player) return
 
     try {
       const response = await fetch(`/api/players/${playerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          // Preserve existing name
+          firstName: player.firstName,
+          lastName: player.lastName || null,
+          // Update contact info
           phone: contactInfo.phone.trim() || null,
           email: contactInfo.email.trim() || null
         })
