@@ -391,8 +391,26 @@ export default function PlayerPage() {
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to delete player')
+        let errorMessage = 'Failed to delete player'
+        try {
+          const error = await response.json()
+          errorMessage = error.error || errorMessage
+        } catch (e) {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage
+        }
+        throw new Error(errorMessage)
+      }
+
+      // Check if response has content before trying to parse
+      const contentType = response.headers.get('content-type')
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          await response.json()
+        } catch (e) {
+          // If JSON parsing fails, that's okay - deletion might have succeeded
+          console.log('Response was not JSON, but deletion may have succeeded')
+        }
       }
 
       // Redirect back to league setup page
