@@ -195,6 +195,18 @@ export default function Home() {
               >
                 Troubleshooting
               </button>
+              <button
+                onClick={() => {
+                  try {
+                    window.open('https://www.facebook.com/groups/1518505846111143/', '_blank')
+                  } catch (error) {
+                    console.error('Error opening Facebook link:', error)
+                  }
+                }}
+                className="w-full py-4 px-6 bg-[#1877F2] text-white rounded-lg font-semibold text-lg hover:bg-[#166FE5] transition-colors shadow-md"
+              >
+                Winter League Facebook Group
+              </button>
             </div>
           </div>
         </div>
