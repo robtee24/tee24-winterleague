@@ -313,20 +313,47 @@ async function calculateMatchesForWeek(weekId: number) {
 }
 
 export async function POST(request: Request) {
+  const startTime = Date.now()
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  
   try {
     const data = await request.json()
     const { playerId, weekId, scores, scorecardImage } = data
 
-    console.log('Creating score with data:', { playerId, weekId, scoresLength: scores?.length, scorecardImage })
+    console.log(`[${requestId}] SCORE_SUBMISSION_START:`, {
+      timestamp: new Date().toISOString(),
+      playerId,
+      weekId,
+      scoresLength: scores?.length,
+      scoresType: Array.isArray(scores) ? 'array' : typeof scores,
+      hasScorecardImage: !!scorecardImage,
+      scoresSample: Array.isArray(scores) ? scores.slice(0, 3) : scores
+    })
 
     // Validate required fields
     if (!playerId || !weekId) {
-      return NextResponse.json({ error: 'playerId and weekId are required' }, { status: 400 })
+      console.error(`[${requestId}] VALIDATION_ERROR:`, {
+        missingPlayerId: !playerId,
+        missingWeekId: !weekId,
+        playerId,
+        weekId
+      })
+      return NextResponse.json({ 
+        error: 'playerId and weekId are required',
+        requestId 
+      }, { status: 400 })
     }
 
     if (!scores || !Array.isArray(scores) || scores.length !== 18) {
+      console.error(`[${requestId}] VALIDATION_ERROR:`, {
+        scoresType: typeof scores,
+        isArray: Array.isArray(scores),
+        scoresLength: Array.isArray(scores) ? scores.length : 'N/A',
+        scoresValue: scores
+      })
       return NextResponse.json({ 
-        error: `scores must be an array of 18 values. Received: ${scores ? (Array.isArray(scores) ? scores.length : typeof scores) : 'null/undefined'}` 
+        error: `scores must be an array of 18 values. Received: ${scores ? (Array.isArray(scores) ? scores.length : typeof scores) : 'null/undefined'}`,
+        requestId
       }, { status: 400 })
     }
 
@@ -342,7 +369,7 @@ export async function POST(request: Request) {
       if (typeof s === 'string') {
         cleanValue = s.replace(/[^0-9]/g, '')
         if (cleanValue === '') {
-          console.warn(`Score at index ${i} contains no numbers:`, s)
+          console.warn(`[${requestId}] Score at index ${i} contains no numbers:`, { original: s, type: typeof s })
           return 0
         }
       }
@@ -352,7 +379,12 @@ export async function POST(request: Request) {
       
       // Validate it's a valid number
       if (isNaN(num) || !isFinite(num)) {
-        console.warn(`Score at index ${i} is not a valid number:`, s)
+        console.warn(`[${requestId}] Score at index ${i} is not a valid number:`, { 
+          original: s, 
+          cleanValue, 
+          parsed: num,
+          type: typeof s 
+        })
         return 0
       }
       
@@ -656,16 +688,31 @@ export async function POST(request: Request) {
       })
     }
     
+    console.log(`[${requestId}] SCORE_SUBMISSION_SUCCESS:`, {
+      timestamp: new Date().toISOString(),
+      scoreId: score.id,
+      playerId,
+      weekId,
+      totalTime: Date.now() - startTime
+    })
+    
     return NextResponse.json(score)
   } catch (error: any) {
-    console.error('Error creating score:', error)
     const errorMessage = error?.message || 'Failed to create score'
-    console.error('Error details:', {
-      message: errorMessage,
-      stack: error?.stack,
-      name: error?.name
+    console.error(`[${requestId}] SCORE_SUBMISSION_ERROR:`, {
+      timestamp: new Date().toISOString(),
+      error: errorMessage,
+      errorName: error?.name,
+      errorStack: error?.stack,
+      errorCode: error?.code,
+      totalTime: Date.now() - startTime,
+      isPrismaError: error?.code?.startsWith('P'),
+      prismaMeta: error?.meta
     })
-    return NextResponse.json({ error: errorMessage }, { status: 500 })
+    return NextResponse.json({ 
+      error: errorMessage,
+      requestId 
+    }, { status: 500 })
   }
 }
 

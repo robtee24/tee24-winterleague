@@ -33,35 +33,81 @@ export default function PhotoPage() {
     }
   }
 
+  const logError = (step: string, error: any, context?: any) => {
+    const errorInfo = {
+      timestamp: new Date().toISOString(),
+      step,
+      error: error?.message || String(error),
+      errorStack: error?.stack,
+      context: {
+        ...context,
+        userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : 'unknown',
+        hasFile: !!file,
+        hasSubmissionData: !!submissionData,
+        playersCount: submissionData?.players?.length || 0,
+      }
+    }
+    console.error('SUBMISSION_ERROR:', JSON.stringify(errorInfo, null, 2))
+    return errorInfo
+  }
+
   const handleSubmit = async () => {
-    if (!file || !submissionData) return
+    if (!file || !submissionData) {
+      const error = logError('PRE_SUBMIT_VALIDATION', new Error('Missing file or submission data'), { file: !!file, submissionData: !!submissionData })
+      alert('Error: Missing required data. Please go back and try again.')
+      return
+    }
 
     setUploading(true)
+    const startTime = Date.now()
 
     try {
-      // Upload photo
+      console.log('SUBMISSION_START:', {
+        timestamp: new Date().toISOString(),
+        fileSize: file.size,
+        fileType: file.type,
+        playersCount: submissionData.players.length
+      })
+
+      // Upload photo with timeout
       const formData = new FormData()
       formData.append('file', file)
+      
+      const uploadController = new AbortController()
+      const uploadTimeout = setTimeout(() => uploadController.abort(), 30000) // 30 second timeout
+      
       const uploadRes = await fetch('/api/upload', {
         method: 'POST',
-        body: formData
-      })
+        body: formData,
+        signal: uploadController.signal
+      }).finally(() => clearTimeout(uploadTimeout))
       
       if (!uploadRes.ok) {
         let errorMessage = 'Failed to upload image'
+        let errorDetails: any = {}
         try {
           const error = await uploadRes.json()
           errorMessage = error.error || errorMessage
+          errorDetails = error
         } catch (e) {
           // If response is not JSON, use status text
           errorMessage = uploadRes.statusText || errorMessage
+          errorDetails = { status: uploadRes.status, statusText: uploadRes.statusText }
         }
-        console.error('Upload error:', errorMessage)
-        throw new Error(errorMessage)
+        const errorInfo = logError('UPLOAD_FAILED', new Error(errorMessage), {
+          status: uploadRes.status,
+          statusText: uploadRes.statusText,
+          errorDetails
+        })
+        throw new Error(`${errorMessage}. If this persists, please text your score to 502-200-1044. Error ID: ${Date.now()}`)
       }
       
       const uploadData = await uploadRes.json()
-      console.log('Upload successful, URL:', uploadData.url)
+      console.log('SUBMISSION_UPLOAD_SUCCESS:', {
+        timestamp: new Date().toISOString(),
+        url: uploadData.url,
+        uploadTime: Date.now() - startTime
+      })
       
       if (!uploadData.url) {
         throw new Error('No URL returned from upload')
@@ -111,6 +157,9 @@ export default function PhotoPage() {
           throw new Error(`No scores found for player at index ${i}`)
         }
 
+        const scoreController = new AbortController()
+        const scoreTimeout = setTimeout(() => scoreController.abort(), 30000) // 30 second timeout
+        
         const scoreRes = await fetch('/api/scores', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -119,27 +168,47 @@ export default function PhotoPage() {
             weekId: weekId,
             scores: combinedScores,
             scorecardImage: uploadData.url // All players share the same scorecard image
-          })
-        })
+          }),
+          signal: scoreController.signal
+        }).finally(() => clearTimeout(scoreTimeout))
         
         if (!scoreRes.ok) {
           let errorMessage = 'Failed to save score'
+          let errorDetails: any = {}
           try {
             const error = await scoreRes.json()
             errorMessage = error.error || errorMessage
+            errorDetails = error
           } catch (e) {
             // If response is not JSON, use status text
             errorMessage = scoreRes.statusText || errorMessage
+            errorDetails = { status: scoreRes.status, statusText: scoreRes.statusText }
           }
-          console.error('Score creation error:', errorMessage)
-          throw new Error(errorMessage)
+          const errorInfo = logError('SCORE_SAVE_FAILED', new Error(errorMessage), {
+            playerId,
+            playerIndex: i,
+            weekId,
+            scoresLength: combinedScores.length,
+            status: scoreRes.status,
+            errorDetails
+          })
+          throw new Error(`${errorMessage} (Player ${i + 1}). If this persists, please text your score to 502-200-1044. Error ID: ${Date.now()}`)
         }
         
         const savedScore = await scoreRes.json()
-        console.log(`Score saved for player ${playerId}`)
-        console.log(`Image URL sent: ${uploadData.url}`)
-        console.log(`Image URL saved in DB: ${savedScore.scorecardImage}`)
+        console.log(`SUBMISSION_SCORE_SAVED:`, {
+          playerId,
+          playerIndex: i,
+          scoreId: savedScore.id,
+          timestamp: new Date().toISOString()
+        })
       }
+      
+      console.log('SUBMISSION_COMPLETE:', {
+        timestamp: new Date().toISOString(),
+        totalTime: Date.now() - startTime,
+        playersCount: submissionData.players.length
+      })
 
       // Clear session storage
       sessionStorage.removeItem('submissionData')
@@ -147,9 +216,22 @@ export default function PhotoPage() {
 
       router.push('/submit/success')
     } catch (error: any) {
-      console.error('Error submitting scores:', error)
-      const errorMessage = error?.message || 'Error submitting scores. Please try again.'
-      alert(`Error: ${errorMessage}`)
+      const errorInfo = logError('SUBMISSION_FAILED', error, {
+        elapsedTime: Date.now() - startTime,
+        isAbortError: error?.name === 'AbortError',
+        isNetworkError: !error?.response && error?.message?.includes('fetch')
+      })
+      
+      let errorMessage = error?.message || 'Error submitting scores. Please try again.'
+      
+      // Provide more helpful error messages
+      if (error?.name === 'AbortError') {
+        errorMessage = 'Request timed out. Please check your internet connection and try again. If this persists, text your score to 502-200-1044.'
+      } else if (error?.message?.includes('fetch')) {
+        errorMessage = 'Network error. Please check your internet connection and try again. If this persists, text your score to 502-200-1044.'
+      }
+      
+      alert(`Error: ${errorMessage}\n\nError ID: ${Date.now()}\n\nPlease note this error ID if contacting support.`)
     } finally {
       setUploading(false)
     }
@@ -187,14 +269,19 @@ export default function PhotoPage() {
       return
     }
 
-    console.log('Starting submission without photo')
+    console.log('SUBMISSION_START_NO_PHOTO:', {
+      timestamp: new Date().toISOString(),
+      playersCount: submissionData.players.length
+    })
     setUploading(true)
+    const startTime = Date.now()
 
     try {
       // Use weekId directly from submission data
       const weekId = submissionData.weekId
 
       if (!weekId) {
+        const errorInfo = logError('NO_PHOTO_WEEK_ID_MISSING', new Error('Week ID is missing'), { submissionData })
         throw new Error('Week ID is missing from submission data')
       }
 
@@ -234,6 +321,9 @@ export default function PhotoPage() {
           continue
         }
 
+        const scoreController = new AbortController()
+        const scoreTimeout = setTimeout(() => scoreController.abort(), 30000) // 30 second timeout
+        
         const scoreRes = await fetch('/api/scores', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -242,14 +332,43 @@ export default function PhotoPage() {
             weekId: weekId,
             scores: combinedScores,
             scorecardImage: null
-          })
-        })
+          }),
+          signal: scoreController.signal
+        }).finally(() => clearTimeout(scoreTimeout))
         
         if (!scoreRes.ok) {
-          const error = await scoreRes.json()
-          throw new Error(error.error || `Failed to save score for player ${playerId}`)
+          let errorMessage = `Failed to save score for player ${playerId}`
+          let errorDetails: any = {}
+          try {
+            const error = await scoreRes.json()
+            errorMessage = error.error || errorMessage
+            errorDetails = error
+          } catch (e) {
+            errorDetails = { status: scoreRes.status, statusText: scoreRes.statusText }
+          }
+          const errorInfo = logError('NO_PHOTO_SCORE_SAVE_FAILED', new Error(errorMessage), {
+            playerId,
+            playerIndex: i,
+            weekId,
+            scoresLength: combinedScores.length,
+            status: scoreRes.status,
+            errorDetails
+          })
+          throw new Error(`${errorMessage} (Player ${i + 1}). If this persists, please text your score to 502-200-1044. Error ID: ${Date.now()}`)
         }
+        
+        console.log(`SUBMISSION_NO_PHOTO_SCORE_SAVED:`, {
+          playerId,
+          playerIndex: i,
+          timestamp: new Date().toISOString()
+        })
       }
+      
+      console.log('SUBMISSION_NO_PHOTO_COMPLETE:', {
+        timestamp: new Date().toISOString(),
+        totalTime: Date.now() - startTime,
+        playersCount: submissionData.players.length
+      })
 
       // Clear session storage
       sessionStorage.removeItem('submissionData')
@@ -259,9 +378,22 @@ export default function PhotoPage() {
       setShowModal(false)
       router.push('/submit/success')
     } catch (error: any) {
-      console.error('Error submitting scores:', error)
-      const errorMessage = error?.message || 'Error submitting scores. Please try again.'
-      alert(`Error: ${errorMessage}`)
+      const errorInfo = logError('NO_PHOTO_SUBMISSION_FAILED', error, {
+        elapsedTime: Date.now() - startTime,
+        isAbortError: error?.name === 'AbortError',
+        isNetworkError: !error?.response && error?.message?.includes('fetch')
+      })
+      
+      let errorMessage = error?.message || 'Error submitting scores. Please try again.'
+      
+      // Provide more helpful error messages
+      if (error?.name === 'AbortError') {
+        errorMessage = 'Request timed out. Please check your internet connection and try again. If this persists, text your score to 502-200-1044.'
+      } else if (error?.message?.includes('fetch')) {
+        errorMessage = 'Network error. Please check your internet connection and try again. If this persists, text your score to 502-200-1044.'
+      }
+      
+      alert(`Error: ${errorMessage}\n\nError ID: ${Date.now()}\n\nPlease note this error ID if contacting support.`)
       // Keep modal open on error so user can try again
     } finally {
       setUploading(false)
