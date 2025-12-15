@@ -676,6 +676,7 @@ export async function recalculateProgressiveHandicaps(
 
 /**
  * Recalculate all handicaps for a league
+ * Only calculates handicaps for weeks where all players have submitted
  * Useful for fixing data or after manual edits
  */
 export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
@@ -689,8 +690,16 @@ export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
     }
   })
   
-  // First, recalculate raw handicaps for all completed rounds
+  // First, recalculate raw handicaps for all COMPLETED rounds only
   for (const week of weeks) {
+    // Check if all players have submitted for this week
+    const weekComplete = await allPlayersSubmitted(leagueId, week.weekNumber)
+    
+    if (!weekComplete) {
+      console.log(`[recalculateAllHandicaps] Week ${week.weekNumber} not complete, skipping raw handicap calculation`)
+      continue
+    }
+    
     const scores = await prisma.score.findMany({
       where: {
         weekId: week.id,
@@ -729,15 +738,22 @@ export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
     }
   }
   
-  // Calculate baselines if we have at least 3 rounds
-  const maxWeekNumber = Math.max(...weeks.map(w => w.weekNumber), 0)
-  if (maxWeekNumber >= 3) {
+  // Calculate baselines if we have at least 3 completed rounds
+  const week3Complete = await allPlayersSubmitted(leagueId, 3)
+  if (week3Complete) {
     await calculateBaselineHandicaps(leagueId)
   }
   
-  // Recalculate progressive handicaps for all weeks
+  // Recalculate progressive handicaps for all completed weeks
+  const maxWeekNumber = Math.max(...weeks.map(w => w.weekNumber), 0)
   if (maxWeekNumber >= 4) {
-    await recalculateProgressiveHandicaps(leagueId, maxWeekNumber)
+    // Only recalculate for weeks that are complete
+    for (let w = 1; w <= maxWeekNumber; w++) {
+      const weekComplete = await allPlayersSubmitted(leagueId, w)
+      if (weekComplete) {
+        await recalculateProgressiveHandicaps(leagueId, w, false)
+      }
+    }
   }
   
   // Ensure all scores have weighted scores calculated

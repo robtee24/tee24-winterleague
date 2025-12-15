@@ -381,6 +381,17 @@ export async function PATCH(
           const uniquePlayersWithScores = new Set(weekScores.map(s => s.playerId))
           const allPlayersSubmitted = allPlayers.length > 0 && uniquePlayersWithScores.size === allPlayers.length
 
+          // ALWAYS recalculate handicaps after every submission
+          // But only calculate for weeks where all players have submitted
+          console.log(`Recalculating all handicaps for league ${score.week.league.id} after score update...`)
+          try {
+            await recalculateAllHandicaps(score.week.league.id)
+            console.log(`Successfully recalculated all handicaps for league ${score.week.league.id}`)
+          } catch (recalcError) {
+            console.error('Error recalculating all handicaps:', recalcError)
+            // Don't throw - continue with other processing
+          }
+
           if (allPlayersSubmitted) {
             console.log(`All players have submitted scores for week ${score.week.weekNumber}. Processing...`)
             
@@ -388,15 +399,13 @@ export async function PATCH(
             await processCompletedRound(score.week.league.id, score.week.weekNumber)
             console.log(`Successfully processed round ${score.week.weekNumber} for league ${score.week.league.id}`)
             
-            // IMPORTANT: Recalculate ALL players' handicaps when the week is complete
-            // This ensures all players get their handicaps updated, not just the one who submitted
-            console.log(`Recalculating all handicaps for league ${score.week.league.id}...`)
+            // Recalculate again after processing the completed round
+            console.log(`Recalculating all handicaps again after processing completed round...`)
             try {
               await recalculateAllHandicaps(score.week.league.id)
-              console.log(`Successfully recalculated all handicaps for league ${score.week.league.id}`)
+              console.log(`Successfully recalculated all handicaps after round completion`)
             } catch (recalcError) {
               console.error('Error recalculating all handicaps:', recalcError)
-              // Don't throw - continue with other processing
             }
             
             // Calculate matches for this week
