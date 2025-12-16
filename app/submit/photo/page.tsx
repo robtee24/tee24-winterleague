@@ -11,6 +11,7 @@ export default function PhotoPage() {
   const [uploading, setUploading] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [submissionData, setSubmissionData] = useState<any>(null)
+  const [fileSize, setFileSize] = useState<number | null>(null)
 
   useEffect(() => {
     const data = sessionStorage.getItem('submissionData')
@@ -21,15 +22,114 @@ export default function PhotoPage() {
     setSubmissionData(JSON.parse(data))
   }, [router])
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image to reduce file size
+  const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.8): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          let width = img.width
+          let height = img.height
+
+          // Calculate new dimensions
+          if (width > height) {
+            if (width > maxWidth) {
+              height = (height * maxWidth) / width
+              width = maxWidth
+            }
+          } else {
+            if (height > maxHeight) {
+              width = (width * maxHeight) / height
+              height = maxHeight
+            }
+          }
+
+          canvas.width = width
+          canvas.height = height
+
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'))
+            return
+          }
+
+          ctx.drawImage(img, 0, 0, width, height)
+
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Failed to compress image'))
+                return
+              }
+              const compressedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now()
+              })
+              resolve(compressedFile)
+            },
+            'image/jpeg',
+            quality
+          )
+        }
+        img.onerror = () => reject(new Error('Failed to load image'))
+        img.src = e.target?.result as string
+      }
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
-      setFile(selectedFile)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setPreview(reader.result as string)
+      // Check file size (4MB limit for Vercel)
+      const maxSize = 4 * 1024 * 1024 // 4MB in bytes
+      
+      if (selectedFile.size > maxSize) {
+        console.log('File too large, compressing...', { originalSize: selectedFile.size })
+        try {
+          // Compress the image
+          const compressedFile = await compressImage(selectedFile)
+          console.log('Image compressed:', { 
+            originalSize: selectedFile.size, 
+            compressedSize: compressedFile.size,
+            reduction: `${Math.round((1 - compressedFile.size / selectedFile.size) * 100)}%`
+          })
+          
+          // If still too large after compression, compress more aggressively
+          if (compressedFile.size > maxSize) {
+            const moreCompressed = await compressImage(selectedFile, 1280, 1280, 0.6)
+            setFile(moreCompressed)
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              setPreview(reader.result as string)
+            }
+            reader.readAsDataURL(moreCompressed)
+          } else {
+            setFile(compressedFile)
+            setFileSize(compressedFile.size)
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              setPreview(reader.result as string)
+            }
+            reader.readAsDataURL(compressedFile)
+          }
+        } catch (error) {
+          console.error('Error compressing image:', error)
+          alert('Error processing image. Please try a smaller image or text your score to 502-200-1044.')
+          return
+        }
+      } else {
+        setFile(selectedFile)
+        setFileSize(selectedFile.size)
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          setPreview(reader.result as string)
+        }
+        reader.readAsDataURL(selectedFile)
       }
-      reader.readAsDataURL(selectedFile)
     }
   }
 
@@ -94,12 +194,20 @@ export default function PhotoPage() {
           errorMessage = uploadRes.statusText || errorMessage
           errorDetails = { status: uploadRes.status, statusText: uploadRes.statusText }
         }
+        
+        // Handle 413 Payload Too Large error specifically
+        if (uploadRes.status === 413) {
+          errorMessage = 'Image file is too large. Please try taking a new photo or use a smaller image. If this continues, text your score to 502-200-1044.'
+        }
+        
         const errorInfo = logError('UPLOAD_FAILED', new Error(errorMessage), {
           status: uploadRes.status,
           statusText: uploadRes.statusText,
-          errorDetails
+          errorDetails,
+          fileSize: file.size,
+          fileType: file.type
         })
-        throw new Error(`${errorMessage}. If this persists, please text your score to 502-200-1044. Error ID: ${Date.now()}`)
+        throw new Error(`${errorMessage} Error ID: ${Date.now()}`)
       }
       
       const uploadData = await uploadRes.json()
@@ -454,6 +562,14 @@ export default function PhotoPage() {
                   className="max-w-full h-auto rounded-lg border border-gray-300"
                   unoptimized
                 />
+                {fileSize && (
+                  <p className="text-xs text-gray-500 mt-2 text-center">
+                    File size: {(fileSize / 1024 / 1024).toFixed(2)} MB
+                    {fileSize > 4 * 1024 * 1024 && (
+                      <span className="text-orange-600 ml-2">(Large file - may take longer to upload)</span>
+                    )}
+                  </p>
+                )}
               </div>
             )}
           </div>
