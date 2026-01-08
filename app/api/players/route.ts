@@ -10,14 +10,59 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'League ID required' }, { status: 400 })
     }
 
-    const players = await prisma.player.findMany({
-      where: { leagueId: parseInt(leagueId) },
-      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }]
+    // Try to fetch with winningsEligible field
+    try {
+      const players = await prisma.player.findMany({
+        where: { leagueId: parseInt(leagueId) },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }]
+      })
+      
+      // Ensure all players have winningsEligible field (defaults to true if missing)
+      const playersWithDefaults = players.map(player => ({
+        ...player,
+        winningsEligible: player.winningsEligible ?? true
+      }))
+      
+      return NextResponse.json(playersWithDefaults)
+    } catch (schemaError: any) {
+      // If column doesn't exist, try using select to exclude it
+      if (schemaError?.code === 'P2021' || schemaError?.message?.includes('column') || schemaError?.message?.includes('Unknown column')) {
+        console.log('[Players API] winningsEligible column may not exist, using fallback query...')
+        const players = await prisma.$queryRawUnsafe(`
+          SELECT id, "firstName", "lastName", phone, email, "leagueId", "createdAt", "updatedAt"
+          FROM "Player"
+          WHERE "leagueId" = $1
+          ORDER BY "firstName" ASC, "lastName" ASC
+        `, parseInt(leagueId)) as Array<{
+          id: number
+          firstName: string
+          lastName: string | null
+          phone: string | null
+          email: string | null
+          leagueId: number
+          createdAt: Date
+          updatedAt: Date
+        }>
+        
+        const playersWithDefaults = players.map(player => ({
+          ...player,
+          winningsEligible: true // Default to true if column doesn't exist
+        }))
+        
+        return NextResponse.json(playersWithDefaults)
+      }
+      throw schemaError // Re-throw if it's not a column error
+    }
+  } catch (error: any) {
+    console.error('[Players API] Error fetching players:', error)
+    console.error('[Players API] Error details:', {
+      message: error?.message,
+      code: error?.code,
+      meta: error?.meta,
+      stack: error?.stack
     })
-    return NextResponse.json(players)
-  } catch (error) {
-    console.error('Error fetching players:', error)
-    return NextResponse.json({ error: 'Failed to fetch players' }, { status: 500 })
+    const errorMessage = error?.message || 'Failed to fetch players'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }
 
