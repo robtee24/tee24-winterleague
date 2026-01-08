@@ -221,9 +221,10 @@ export default function LeaderboardPage() {
     return totalA - totalB
   })
 
-  const getTeamRecord = (teamId: number): { wins: number; losses: number } => {
+  const getTeamRecord = (teamId: number): { wins: number; losses: number; ties: number } => {
     let wins = 0
     let losses = 0
+    let ties = 0
 
     matches.forEach(match => {
       if (!match.team2Id || !match.team2) return // Skip incomplete matches
@@ -255,15 +256,18 @@ export default function LeaderboardPage() {
       // Only count matches where all players have submitted scores
       if (!allPlayersSubmitted) return
 
-      // Now check if this team won or lost
+      // Now check if this team won, lost, or tied
       if (match.winnerId === teamId) {
         wins++
       } else if (match.winnerId !== null && match.winnerId !== teamId) {
         losses++
+      } else if (match.winnerId === null) {
+        // Tie occurs when winnerId is null and all players have submitted
+        ties++
       }
     })
 
-    return { wins, losses }
+    return { wins, losses, ties }
   }
 
   // Sort teams by wins (highest to lowest), then by losses (lowest to highest)
@@ -494,7 +498,7 @@ export default function LeaderboardPage() {
                             {team.player1.firstName} {team.player1.lastName} & {team.player2.firstName} {team.player2.lastName}
                           </div>
                           <div className="text-xs font-semibold text-gray-700 mt-1">
-                            {record.wins}-{record.losses}
+                            {record.wins}-{record.losses}-{record.ties}
                           </div>
                         </td>
                         {Array.from({ length: 12 }, (_, i) => {

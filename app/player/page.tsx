@@ -254,12 +254,13 @@ function PlayerPageContent() {
     return { wins, winnings: totalWinnings }
   }
 
-  // Calculate team record (wins and losses)
-  const getTeamRecord = (): { wins: number; losses: number } => {
-    if (!playerId) return { wins: 0, losses: 0 }
+  // Calculate team record (wins, losses, and ties)
+  const getTeamRecord = (): { wins: number; losses: number; ties: number } => {
+    if (!playerId) return { wins: 0, losses: 0, ties: 0 }
     
     let wins = 0
     let losses = 0
+    let ties = 0
     
     playerTeams.forEach(team => {
       const teamMatches = getTeamMatches(team.id)
@@ -289,16 +290,19 @@ function PlayerPageContent() {
         // Only count matches where all players have submitted scores
         if (!allPlayersSubmitted) return
 
-        // Check if this team won or lost
+        // Check if this team won, lost, or tied
         if (match.winnerId === team.id) {
           wins++
         } else if (match.winnerId !== null && match.winnerId !== team.id) {
           losses++
+        } else if (match.winnerId === null) {
+          // Tie occurs when winnerId is null and all players have submitted
+          ties++
         }
       })
     })
     
-    return { wins, losses }
+    return { wins, losses, ties }
   }
 
   const handleScoreClick = (score: Score) => {
@@ -388,7 +392,7 @@ function PlayerPageContent() {
                 <h3 className="text-sm font-semibold text-gray-600 mb-2">Team Record</h3>
                 <p className="text-2xl font-bold text-gray-800">{(() => {
                   const record = getTeamRecord()
-                  return `${record.wins}-${record.losses}`
+                  return `${record.wins}-${record.losses}-${record.ties}`
                 })()}</p>
               </div>
             </div>

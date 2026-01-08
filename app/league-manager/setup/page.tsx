@@ -395,9 +395,10 @@ export default function LeagueSetupPage() {
     }, 0)
   }
 
-  const getTeamRecord = (teamId: number): { wins: number; losses: number } => {
+  const getTeamRecord = (teamId: number): { wins: number; losses: number; ties: number } => {
     let wins = 0
     let losses = 0
+    let ties = 0
 
     matches.forEach(match => {
       if (!match.team2Id || !match.team2) return // Skip incomplete matches
@@ -429,15 +430,18 @@ export default function LeagueSetupPage() {
       // Only count matches where all players have submitted scores
       if (!allPlayersSubmitted) return
 
-      // Now check if this team won or lost
+      // Now check if this team won, lost, or tied
       if (match.winnerId === teamId) {
         wins++
       } else if (match.winnerId !== null && match.winnerId !== teamId) {
         losses++
+      } else if (match.winnerId === null) {
+        // Tie occurs when winnerId is null and all players have submitted
+        ties++
       }
     })
 
-    return { wins, losses }
+    return { wins, losses, ties }
   }
 
   const exportToCSV = () => {
@@ -1029,7 +1033,7 @@ export default function LeagueSetupPage() {
                             const record = getTeamRecord(team.id)
                             return (
                               <div className="text-xs font-semibold text-gray-700 mt-1">
-                                {record.wins}-{record.losses}
+                                {record.wins}-{record.losses}-{record.ties}
                               </div>
                             )
                           })()}
