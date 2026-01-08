@@ -678,111 +678,193 @@ export async function recalculateProgressiveHandicaps(
  * Recalculate all handicaps for a league
  * Only calculates handicaps for weeks where all players have submitted
  * Useful for fixing data or after manual edits
+ * Optimized for large leagues by batching operations
  */
 export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
-  const weeks = await prisma.week.findMany({
-    where: {
-      leagueId,
-      isChampionship: false
-    },
-    orderBy: {
-      weekNumber: 'asc'
-    }
-  })
+  console.log(`[recalculateAllHandicaps] Starting for league ${leagueId}`)
   
-  // First, recalculate raw handicaps for all COMPLETED rounds only
+  // Fetch all data upfront to reduce queries
+  const [weeks, players, allScores] = await Promise.all([
+    prisma.week.findMany({
+      where: {
+        leagueId,
+        isChampionship: false
+      },
+      orderBy: {
+        weekNumber: 'asc'
+      }
+    }),
+    prisma.player.findMany({
+      where: { leagueId }
+    }),
+    prisma.score.findMany({
+      where: {
+        player: { leagueId },
+        total: { not: null }
+      },
+      include: {
+        player: true,
+        week: true
+      }
+    })
+  ])
+  
+  console.log(`[recalculateAllHandicaps] Found ${weeks.length} weeks, ${players.length} players, ${allScores.length} scores`)
+  
+  // Cache which weeks are complete (check once per week)
+  const weekCompleteCache = new Map<number, boolean>()
+  const playerCount = players.length
+  
+  // Group scores by week
+  const scoresByWeek = new Map<number, typeof allScores>()
+  for (const score of allScores) {
+    const weekNum = score.week.weekNumber
+    if (!scoresByWeek.has(weekNum)) {
+      scoresByWeek.set(weekNum, [])
+    }
+    scoresByWeek.get(weekNum)!.push(score)
+  }
+  
+  // Check which weeks are complete (all players submitted)
   for (const week of weeks) {
-    // Check if all players have submitted for this week
-    const weekComplete = await allPlayersSubmitted(leagueId, week.weekNumber)
-    
-    if (!weekComplete) {
-      console.log(`[recalculateAllHandicaps] Week ${week.weekNumber} not complete, skipping raw handicap calculation`)
+    const weekScores = scoresByWeek.get(week.weekNumber) || []
+    const uniquePlayers = new Set(weekScores.map(s => s.playerId))
+    weekCompleteCache.set(week.weekNumber, uniquePlayers.size === playerCount && playerCount > 0)
+  }
+  
+  // Batch update raw handicaps for all completed weeks
+  const handicapUpdates: Array<{
+    playerId: number
+    weekId: number
+    rawHandicap: number
+  }> = []
+  
+  for (const week of weeks) {
+    const isComplete = weekCompleteCache.get(week.weekNumber)
+    if (!isComplete) {
+      console.log(`[recalculateAllHandicaps] Week ${week.weekNumber} not complete, skipping`)
       continue
     }
     
-    const scores = await prisma.score.findMany({
-      where: {
-        weekId: week.id,
-        total: {
-          not: null
-        }
-      },
-      include: {
-        player: true
+    const weekScores = scoresByWeek.get(week.weekNumber) || []
+    if (weekScores.length === 0) continue
+    
+    // Deduplicate scores (keep most recent per player)
+    const playerScoreMap = new Map<number, typeof weekScores[0]>()
+    for (const score of weekScores) {
+      const existing = playerScoreMap.get(score.playerId)
+      if (!existing || score.id > existing.id) {
+        playerScoreMap.set(score.playerId, score)
       }
-    })
+    }
     
-    if (scores.length === 0) continue
+    const uniqueScores = Array.from(playerScoreMap.values())
+    const roundLow = Math.min(...uniqueScores.map(s => s.total!))
     
-    const roundLow = Math.min(...scores.map(s => s.total!))
-    
-    for (const score of scores) {
+    for (const score of uniqueScores) {
       const rawHandicap = calculateRawHandicap(score.total!, roundLow)
-      
-      await prisma.handicap.upsert({
-        where: {
-          playerId_weekId: {
-            playerId: score.playerId,
-            weekId: week.id
-          }
-        },
-        update: {
-          rawHandicap
-        },
-        create: {
-          playerId: score.playerId,
-          weekId: week.id,
-          rawHandicap
-        }
+      handicapUpdates.push({
+        playerId: score.playerId,
+        weekId: week.id,
+        rawHandicap
       })
     }
   }
   
+  // Batch upsert raw handicaps in smaller chunks to avoid timeout
+  console.log(`[recalculateAllHandicaps] Batch updating ${handicapUpdates.length} raw handicaps`)
+  const BATCH_SIZE = 50 // Process 50 at a time
+  for (let i = 0; i < handicapUpdates.length; i += BATCH_SIZE) {
+    const batch = handicapUpdates.slice(i, i + BATCH_SIZE)
+    await Promise.all(
+      batch.map(update =>
+        prisma.handicap.upsert({
+          where: {
+            playerId_weekId: {
+              playerId: update.playerId,
+              weekId: update.weekId
+            }
+          },
+          update: {
+            rawHandicap: update.rawHandicap
+          },
+          create: {
+            playerId: update.playerId,
+            weekId: update.weekId,
+            rawHandicap: update.rawHandicap
+          }
+        })
+      )
+    )
+    console.log(`[recalculateAllHandicaps] Processed batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(handicapUpdates.length / BATCH_SIZE)}`)
+  }
+  
   // Calculate baselines if we have at least 3 completed rounds
-  const week3Complete = await allPlayersSubmitted(leagueId, 3)
+  const week3Complete = weekCompleteCache.get(3)
   if (week3Complete) {
+    console.log(`[recalculateAllHandicaps] Week 3 complete, calculating baselines`)
     await calculateBaselineHandicaps(leagueId)
   }
   
-  // Recalculate progressive handicaps for all completed weeks
+  // Recalculate progressive handicaps for all completed weeks (optimized)
   const maxWeekNumber = Math.max(...weeks.map(w => w.weekNumber), 0)
   if (maxWeekNumber >= 4) {
-    // Only recalculate for weeks that are complete
-    for (let w = 1; w <= maxWeekNumber; w++) {
-      const weekComplete = await allPlayersSubmitted(leagueId, w)
-      if (weekComplete) {
-        await recalculateProgressiveHandicaps(leagueId, w, false)
-      }
+    console.log(`[recalculateAllHandicaps] Recalculating progressive handicaps up to week ${maxWeekNumber}`)
+    // Process weeks in batches to avoid timeout
+    const completedWeeks = weeks.filter(w => weekCompleteCache.get(w.weekNumber))
+    for (const week of completedWeeks) {
+      await recalculateProgressiveHandicaps(leagueId, week.weekNumber, false)
     }
   }
   
-  // Ensure all scores have weighted scores calculated
+  // Ensure all scores have weighted scores calculated (optimized)
+  console.log(`[recalculateAllHandicaps] Ensuring weighted scores are calculated`)
   await ensureAllWeightedScores(leagueId)
+  
+  console.log(`[recalculateAllHandicaps] Completed for league ${leagueId}`)
 }
 
 /**
  * Ensure all scores have weighted scores calculated
  * If a score has a total and a handicap exists, calculate weighted score
  * Handles duplicate scores by only processing the most recent score per player/week
+ * Optimized for large leagues by batching operations
  */
 export async function ensureAllWeightedScores(leagueId: number): Promise<void> {
-  const allScores = await prisma.score.findMany({
-    where: {
-      player: {
-        leagueId
+  console.log(`[ensureAllWeightedScores] Starting for league ${leagueId}`)
+  
+  // Fetch all scores and handicaps in bulk
+  const [allScores, allHandicaps] = await Promise.all([
+    prisma.score.findMany({
+      where: {
+        player: {
+          leagueId
+        },
+        total: {
+          not: null
+        }
       },
-      total: {
-        not: null
+      include: {
+        player: true,
+        week: true
+      },
+      orderBy: {
+        id: 'desc' // Most recent first
       }
-    },
-    include: {
-      player: true,
-      week: true
-    },
-    orderBy: {
-      id: 'desc' // Most recent first
-    }
-  })
+    }),
+    prisma.handicap.findMany({
+      where: {
+        player: {
+          leagueId
+        }
+      },
+      include: {
+        week: true
+      }
+    })
+  ])
+  
+  console.log(`[ensureAllWeightedScores] Found ${allScores.length} scores, ${allHandicaps.length} handicaps`)
   
   // Deduplicate: keep only the most recent score per player/week
   const scoreKeyMap = new Map<string, typeof allScores[0]>()
@@ -794,48 +876,52 @@ export async function ensureAllWeightedScores(leagueId: number): Promise<void> {
   }
   const scores = Array.from(scoreKeyMap.values())
   
+  // Create a map of handicaps for quick lookup
+  const handicapMap = new Map<string, typeof allHandicaps[0]>()
+  for (const handicap of allHandicaps) {
+    const key = `${handicap.playerId}-${handicap.weekId}`
+    handicapMap.set(key, handicap)
+  }
+  
+  // Batch updates
+  const scoreUpdates: Array<{
+    id: number
+    weightedScore: number
+  }> = []
+  
   for (const score of scores) {
-    // Get the applied handicap for this player/week
-    // Try to find handicap by weekId first, then by weekNumber
-    let handicap = await prisma.handicap.findFirst({
-      where: {
-        playerId: score.playerId,
-        week: {
-          weekNumber: score.week.weekNumber,
-          leagueId,
-          isChampionship: score.week.isChampionship
-        }
-      },
-      orderBy: {
-        updatedAt: 'desc' // Most recent
-      }
-    })
-    
-    // Fallback to weekId if not found
-    if (!handicap) {
-      handicap = await prisma.handicap.findUnique({
-        where: {
-          playerId_weekId: {
-            playerId: score.playerId,
-            weekId: score.weekId
-          }
-        }
-      })
-    }
+    const handicapKey = `${score.playerId}-${score.weekId}`
+    const handicap = handicapMap.get(handicapKey)
     
     const appliedHandicap = handicap?.appliedHandicap ?? handicap?.handicap ?? 0
-    
-    // Calculate weighted score
     const weightedScore = Math.round(score.total! - appliedHandicap)
     
-    // Update if different
+    // Only update if different
     if (score.weightedScore !== weightedScore) {
-      await prisma.score.update({
-        where: { id: score.id },
-        data: {
-          weightedScore
-        }
+      scoreUpdates.push({
+        id: score.id,
+        weightedScore
       })
     }
   }
+  
+  // Batch update scores in smaller chunks to avoid timeout
+  if (scoreUpdates.length > 0) {
+    console.log(`[ensureAllWeightedScores] Updating ${scoreUpdates.length} weighted scores`)
+    const BATCH_SIZE = 50 // Process 50 at a time
+    for (let i = 0; i < scoreUpdates.length; i += BATCH_SIZE) {
+      const batch = scoreUpdates.slice(i, i + BATCH_SIZE)
+      await Promise.all(
+        batch.map(update =>
+          prisma.score.update({
+            where: { id: update.id },
+            data: { weightedScore: update.weightedScore }
+          })
+        )
+      )
+      console.log(`[ensureAllWeightedScores] Processed batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(scoreUpdates.length / BATCH_SIZE)}`)
+    }
+  }
+  
+  console.log(`[ensureAllWeightedScores] Completed for league ${leagueId}`)
 }
