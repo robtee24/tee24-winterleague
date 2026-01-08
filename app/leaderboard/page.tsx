@@ -81,29 +81,93 @@ export default function LeaderboardPage() {
     if (!selectedLeagueId) return
 
     fetch(`/api/players?leagueId=${selectedLeagueId}`)
-      .then(res => res.json())
-      .then(data => setPlayers(data))
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch players: ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        const isArray = Array.isArray(data)
+        if (!isArray) {
+          console.error('[Leaderboard] Players data is not an array!', data)
+        }
+        setPlayers(isArray ? data : [])
+      })
+      .catch(err => {
+        console.error('[Leaderboard] Error fetching players:', err)
+        setPlayers([])
+      })
 
     fetch(`/api/scores?leagueId=${selectedLeagueId}`)
-      .then(res => res.json())
-      .then(data => setScores(data))
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch scores: ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        const isArray = Array.isArray(data)
+        if (!isArray) {
+          console.error('[Leaderboard] Scores data is not an array!', data)
+        }
+        setScores(isArray ? data : [])
+      })
+      .catch(err => {
+        console.error('[Leaderboard] Error fetching scores:', err)
+        setScores([])
+      })
 
     fetch(`/api/weeks?leagueId=${selectedLeagueId}`)
-      .then(res => res.json())
-      .then(data => setWeeks(data))
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch weeks: ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        const isArray = Array.isArray(data)
+        if (!isArray) {
+          console.error('[Leaderboard] Weeks data is not an array!', data)
+        }
+        setWeeks(isArray ? data : [])
+      })
+      .catch(err => {
+        console.error('[Leaderboard] Error fetching weeks:', err)
+        setWeeks([])
+      })
 
     fetch(`/api/teams?leagueId=${selectedLeagueId}`)
-      .then(res => res.json())
-      .then(data => setTeams(data))
-      .catch(err => console.error('Error fetching teams:', err))
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch teams: ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        const isArray = Array.isArray(data)
+        if (!isArray) {
+          console.error('[Leaderboard] Teams data is not an array!', data)
+        }
+        setTeams(isArray ? data : [])
+      })
+      .catch(err => {
+        console.error('[Leaderboard] Error fetching teams:', err)
+        setTeams([])
+      })
 
     fetch(`/api/matches?leagueId=${selectedLeagueId}`)
-      .then(res => res.json())
-      .then(data => setMatches(data))
-      .catch(err => console.error('Error fetching matches:', err))
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch matches: ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        const isArray = Array.isArray(data)
+        if (!isArray) {
+          console.error('[Leaderboard] Matches data is not an array!', data)
+        }
+        setMatches(isArray ? data : [])
+      })
+      .catch(err => {
+        console.error('[Leaderboard] Error fetching matches:', err)
+        setMatches([])
+      })
   }, [selectedLeagueId])
 
   const getPlayerScores = (playerId: number) => {
+    if (!Array.isArray(scores)) return {}
     const playerScores = scores.filter(s => s.playerId === playerId)
     const scoreMap: { [week: number]: number } = {}
     
@@ -119,6 +183,7 @@ export default function LeaderboardPage() {
   }
 
   const getPlayerTotal = (playerId: number) => {
+    if (!Array.isArray(scores)) return 0
     const playerScores = scores.filter(s => s.playerId === playerId)
     return playerScores.reduce((sum, score) => {
       const weekNum = getWeekNumberForDisplay(score.week)
@@ -140,6 +205,7 @@ export default function LeaderboardPage() {
 
   // Get a player's score for a specific week
   const getPlayerScoreForWeek = (playerId: number, weekNum: number): number | null => {
+    if (!Array.isArray(scores)) return null
     const playerScores = scores.filter(s => {
       const scoreWeekNum = getWeekNumberForDisplay(s.week)
       return s.playerId === playerId && scoreWeekNum === weekNum
@@ -157,6 +223,7 @@ export default function LeaderboardPage() {
   // Get the lowest (winning) handicapped score for a specific week
   const getWinningScoreForWeek = (weekNum: number): number | null => {
     if (activeTab !== 'weighted') return null
+    if (!Array.isArray(scores)) return null
     
     const weekScores = scores.filter(s => {
       const scoreWeekNum = getWeekNumberForDisplay(s.week)
@@ -193,7 +260,7 @@ export default function LeaderboardPage() {
 
   // Check if all players have submitted scores for a specific week
   const allPlayersSubmittedForWeek = (weekNum: number): boolean => {
-    if (players.length === 0) return false
+    if (!Array.isArray(players) || !Array.isArray(scores) || players.length === 0) return false
     
     const weekScores = scores.filter(s => {
       const scoreWeekNum = getWeekNumberForDisplay(s.week)
@@ -206,7 +273,8 @@ export default function LeaderboardPage() {
 
   // Sort players by total of completed weeks (lowest to highest)
   // For Handicapped Scores, only count weeks where all players submitted
-  const sortedPlayers = [...players].sort((a, b) => {
+  const sortedPlayers = Array.isArray(players) ? [...players].sort((a, b) => {
+    if (!Array.isArray(scores)) return 0
     // Check if players have any scores at all
     const hasAnyScoresA = scores.some(s => s.playerId === a.id)
     const hasAnyScoresB = scores.some(s => s.playerId === b.id)
@@ -220,12 +288,14 @@ export default function LeaderboardPage() {
     const totalA = getPlayerTotal(a.id)
     const totalB = getPlayerTotal(b.id)
     return totalA - totalB
-  })
+  }) : []
 
   const getTeamRecord = (teamId: number): { wins: number; losses: number; ties: number } => {
     let wins = 0
     let losses = 0
     let ties = 0
+
+    if (!Array.isArray(matches) || !Array.isArray(scores)) return { wins: 0, losses: 0, ties: 0 }
 
     matches.forEach(match => {
       if (!match.team2Id || !match.team2) return // Skip incomplete matches
@@ -272,14 +342,14 @@ export default function LeaderboardPage() {
   }
 
   // Sort teams by wins (highest to lowest), then by losses (lowest to highest)
-  const sortedTeams = [...teams].sort((a, b) => {
+  const sortedTeams = Array.isArray(teams) ? [...teams].sort((a, b) => {
     const recordA = getTeamRecord(a.id)
     const recordB = getTeamRecord(b.id)
     if (recordA.wins !== recordB.wins) {
       return recordB.wins - recordA.wins
     }
     return recordA.losses - recordB.losses
-  })
+  }) : []
 
   return (
     <main className="min-h-screen p-8 bg-gray-50">
