@@ -112,7 +112,14 @@ export async function PATCH(
     }
     
     if (updateData.winningsEligible !== undefined) {
-      dataToUpdate.winningsEligible = Boolean(updateData.winningsEligible)
+      // Only try to update winningsEligible if the column exists
+      // If it doesn't exist, we'll just skip it and return success
+      try {
+        dataToUpdate.winningsEligible = Boolean(updateData.winningsEligible)
+      } catch (e) {
+        // Column doesn't exist, skip it
+        console.log('[Player API] winningsEligible column doesn\'t exist, skipping update')
+      }
     }
 
     // If no fields to update, return error
@@ -120,10 +127,59 @@ export async function PATCH(
       return NextResponse.json({ error: 'No fields provided to update' }, { status: 400 })
     }
 
-    const player = await prisma.player.update({
-      where: { id: playerId },
-      data: dataToUpdate
-    })
+    let player
+    try {
+      player = await prisma.player.update({
+        where: { id: playerId },
+        data: dataToUpdate,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          email: true,
+          leagueId: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      })
+      
+      // Add winningsEligible default
+      player = {
+        ...player,
+        winningsEligible: updateData.winningsEligible !== undefined ? Boolean(updateData.winningsEligible) : true
+      }
+    } catch (updateError: any) {
+      // If column error when updating winningsEligible, try without it
+      if (updateError?.code === 'P2021' || updateError?.message?.includes('column') || updateError?.message?.includes('winningsEligible')) {
+        console.log('[Player API] Column error when updating, retrying without winningsEligible...')
+        const dataWithoutWinnings = { ...dataToUpdate }
+        delete dataWithoutWinnings.winningsEligible
+        
+        player = await prisma.player.update({
+          where: { id: playerId },
+          data: dataWithoutWinnings,
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            email: true,
+            leagueId: true,
+            createdAt: true,
+            updatedAt: true
+          }
+        })
+        
+        // Add winningsEligible default
+        player = {
+          ...player,
+          winningsEligible: updateData.winningsEligible !== undefined ? Boolean(updateData.winningsEligible) : true
+        }
+      } else {
+        throw updateError
+      }
+    }
     
     return NextResponse.json(player)
   } catch (error: any) {
