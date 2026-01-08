@@ -82,15 +82,26 @@ export default function LeaderboardPage() {
 
     fetch(`/api/players?leagueId=${selectedLeagueId}`)
       .then(res => {
-        if (!res.ok) throw new Error(`Failed to fetch players: ${res.status}`)
+        if (!res.ok) {
+          throw new Error(`Failed to fetch players: ${res.status} ${res.statusText}`)
+        }
         return res.json()
       })
       .then(data => {
+        // Check if response is an error object
+        if (data && typeof data === 'object' && 'error' in data) {
+          console.error('[Leaderboard] API returned error:', data.error)
+          setPlayers([])
+          return
+        }
         const isArray = Array.isArray(data)
         if (!isArray) {
           console.error('[Leaderboard] Players data is not an array!', data)
+          setPlayers([])
+          return
         }
-        setPlayers(isArray ? data : [])
+        console.log('[Leaderboard] Players loaded:', { count: data.length, players: data })
+        setPlayers(data)
       })
       .catch(err => {
         console.error('[Leaderboard] Error fetching players:', err)
@@ -99,15 +110,26 @@ export default function LeaderboardPage() {
 
     fetch(`/api/scores?leagueId=${selectedLeagueId}`)
       .then(res => {
-        if (!res.ok) throw new Error(`Failed to fetch scores: ${res.status}`)
+        if (!res.ok) {
+          throw new Error(`Failed to fetch scores: ${res.status} ${res.statusText}`)
+        }
         return res.json()
       })
       .then(data => {
+        // Check if response is an error object
+        if (data && typeof data === 'object' && 'error' in data) {
+          console.error('[Leaderboard] API returned error:', data.error)
+          setScores([])
+          return
+        }
         const isArray = Array.isArray(data)
         if (!isArray) {
           console.error('[Leaderboard] Scores data is not an array!', data)
+          setScores([])
+          return
         }
-        setScores(isArray ? data : [])
+        console.log('[Leaderboard] Scores loaded:', { count: data.length })
+        setScores(data)
       })
       .catch(err => {
         console.error('[Leaderboard] Error fetching scores:', err)
@@ -452,15 +474,24 @@ export default function LeaderboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedPlayers.map((player, index) => {
+                {sortedPlayers.length === 0 ? (
+                  <tr>
+                    <td colSpan={14} className="border border-gray-300 px-4 py-8 text-center text-gray-600">
+                      {Array.isArray(players) && players.length === 0 
+                        ? 'No players found for this league.'
+                        : 'Loading players...'}
+                    </td>
+                  </tr>
+                ) : (
+                  sortedPlayers.map((player, index) => {
                   const playerScores = getPlayerScores(player.id)
                   // Highlight first place if they have the lowest total and have at least one completed week score
                   const hasCompletedWeekScore = activeTab === 'weighted'
-                    ? scores.some(s => {
+                    ? Array.isArray(scores) && scores.some(s => {
                         const weekNum = getWeekNumberForDisplay(s.week)
                         return s.playerId === player.id && allPlayersSubmittedForWeek(weekNum)
                       })
-                    : scores.some(s => s.playerId === player.id && s.total !== null)
+                    : Array.isArray(scores) && scores.some(s => s.playerId === player.id && s.total !== null)
                   const isFirstPlace = index === 0 && hasCompletedWeekScore
                   return (
                     <tr key={player.id} className={isFirstPlace ? 'bg-yellow-50' : ''}>
@@ -472,7 +503,7 @@ export default function LeaderboardPage() {
                           href={`/player?playerId=${player.id}&leagueId=${selectedLeagueId}`}
                           className="text-blue-600 hover:underline"
                         >
-                          {player.firstName} {player.lastName} {player.winningsEligible && '💵'}
+                          {player.firstName} {player.lastName} {(player.winningsEligible ?? true) && '💵'}
                         </Link>
                       </td>
                       {Array.from({ length: 12 }, (_, i) => {
@@ -526,7 +557,8 @@ export default function LeaderboardPage() {
                       </td>
                     </tr>
                   )
-                })}
+                  })
+                )}
               </tbody>
             </table>
           </div>
