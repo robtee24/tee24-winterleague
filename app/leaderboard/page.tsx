@@ -10,6 +10,7 @@ interface Player {
   firstName: string
   lastName: string
   handicap: number
+  winningsEligible: boolean
 }
 
 interface Score {
@@ -401,7 +402,7 @@ export default function LeaderboardPage() {
                           href={`/player?playerId=${player.id}&leagueId=${selectedLeagueId}`}
                           className="text-blue-600 hover:underline"
                         >
-                          {player.firstName} {player.lastName}
+                          {player.firstName} {player.lastName} {player.winningsEligible && '💵'}
                         </Link>
                       </td>
                       {Array.from({ length: 12 }, (_, i) => {

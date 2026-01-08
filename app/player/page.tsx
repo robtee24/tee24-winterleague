@@ -11,6 +11,7 @@ interface Player {
   lastName: string
   phone: string | null
   email: string | null
+  winningsEligible: boolean
 }
 
 interface Team {
@@ -203,12 +204,24 @@ function PlayerPageContent() {
   }
 
   // Calculate week wins and total winnings (weeks where player had the lowest handicapped score)
-  // If tied, all winners count it as a win and split the $50 prize
+  // If winner is not eligible, winnings go to first eligible player
+  // If tied among eligible winners, split evenly
   const calculateWeekWinsAndWinnings = (): { wins: number; winnings: number } => {
-    if (!playerId || allLeagueScores.length === 0) return { wins: 0, winnings: 0 }
+    if (!playerId || allLeagueScores.length === 0 || !player) return { wins: 0, winnings: 0 }
+    
+    // If player is not eligible, they don't get winnings
+    if (!player.winningsEligible) {
+      return { wins: 0, winnings: 0 }
+    }
     
     let wins = 0
     let totalWinnings = 0
+    
+    // Create a map of player eligibility
+    const playerEligibilityMap = new Map<number, boolean>()
+    allLeaguePlayers.forEach(p => {
+      playerEligibilityMap.set(p.id, p.winningsEligible ?? true)
+    })
     
     // Check each week (1-12)
     for (let weekNum = 1; weekNum <= 12; weekNum++) {
@@ -235,19 +248,40 @@ function PlayerPageContent() {
       // Find the lowest handicapped score for this week
       const lowestScore = Math.min(...allScores)
       
-      // Check if this player has the lowest score
-      const playerScore = playerScoreMap.get(parseInt(playerId))
-      if (playerScore === undefined || playerScore !== lowestScore) continue
+      // Find all players with the lowest score
+      const allWinners = Array.from(playerScoreMap.entries())
+        .filter(([_, score]) => score === lowestScore)
+        .map(([playerId]) => playerId)
       
-      // Count all players with the lowest score (winners)
-      const winners = Array.from(playerScoreMap.entries()).filter(([_, score]) => score === lowestScore)
-      const numberOfWinners = winners.length
+      // Find eligible winners (players with lowest score who are eligible)
+      const eligibleWinners = allWinners.filter(pid => playerEligibilityMap.get(pid) ?? true)
       
-      // Count as a win (even if tied)
+      // If no eligible winners, find the first eligible player (regardless of score)
+      let actualWinners: number[] = []
+      if (eligibleWinners.length === 0) {
+        // Find first eligible player(s) with the best score among eligible players
+        const eligiblePlayerScores = Array.from(playerScoreMap.entries())
+          .filter(([pid]) => playerEligibilityMap.get(pid) ?? true)
+          .sort((a, b) => a[1] - b[1]) // Sort by score, lowest first
+        
+        if (eligiblePlayerScores.length > 0) {
+          const bestEligibleScore = eligiblePlayerScores[0][1]
+          actualWinners = eligiblePlayerScores
+            .filter(([_, score]) => score === bestEligibleScore)
+            .map(([pid]) => pid)
+        }
+      } else {
+        actualWinners = eligibleWinners
+      }
+      
+      // Check if this player is in the actual winners list
+      if (!actualWinners.includes(parseInt(playerId))) continue
+      
+      // Count as a win
       wins++
       
-      // Calculate winnings: $50 split among all winners
-      const weekWinnings = 50 / numberOfWinners
+      // Calculate winnings: $50 split among all eligible winners
+      const weekWinnings = 50 / actualWinners.length
       totalWinnings += weekWinnings
     }
     
@@ -359,10 +393,14 @@ function PlayerPageContent() {
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-gray-600 mb-2">Winnings</h3>
-                  <p className="text-2xl font-bold text-gray-800">${(() => {
-                    const { winnings } = calculateWeekWinsAndWinnings()
-                    return Math.round(winnings * 100) / 100 // Round to 2 decimal places
-                  })().toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  {player.winningsEligible ? (
+                    <p className="text-2xl font-bold text-gray-800">${(() => {
+                      const { winnings } = calculateWeekWinsAndWinnings()
+                      return Math.round(winnings * 100) / 100 // Round to 2 decimal places
+                    })().toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  ) : (
+                    <p className="text-2xl font-bold text-gray-500">Not Eligible</p>
+                  )}
                 </div>
               </div>
             </div>

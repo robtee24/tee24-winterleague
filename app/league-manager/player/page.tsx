@@ -9,6 +9,7 @@ interface Player {
   lastName: string
   phone: string | null
   email: string | null
+  winningsEligible: boolean
 }
 
 interface Handicap {
@@ -562,6 +563,44 @@ export default function PlayerPage() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Winnings Eligibility Section */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Winnings Eligibility</h2>
+              <p className="text-sm text-gray-600 mb-4">Whether this player is eligible to receive winnings from weekly prizes.</p>
+            </div>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <span className="text-sm font-semibold text-gray-700">Winnings Eligible</span>
+              <input
+                type="checkbox"
+                checked={player.winningsEligible ?? true}
+                onChange={async (e) => {
+                  if (!playerId) return
+                  try {
+                    const response = await fetch(`/api/players/${playerId}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ winningsEligible: e.target.checked })
+                    })
+                    if (response.ok) {
+                      const updatedPlayer = await response.json()
+                      setPlayer(updatedPlayer)
+                    } else {
+                      const error = await response.json()
+                      alert(`Failed to update winnings eligibility: ${error.error}`)
+                    }
+                  } catch (error) {
+                    console.error('Error updating winnings eligibility:', error)
+                    alert('Failed to update winnings eligibility')
+                  }
+                }}
+                className="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-green-500"
+              />
+            </label>
+          </div>
         </div>
 
         {/* Team Assignments Section */}

@@ -53,6 +53,10 @@ export async function PATCH(
     if (updateData.email !== undefined) {
       dataToUpdate.email = updateData.email?.trim() || null
     }
+    
+    if (updateData.winningsEligible !== undefined) {
+      dataToUpdate.winningsEligible = Boolean(updateData.winningsEligible)
+    }
 
     // If no fields to update, return error
     if (Object.keys(dataToUpdate).length === 0) {
