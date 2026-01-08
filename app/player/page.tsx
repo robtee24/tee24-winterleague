@@ -150,13 +150,19 @@ function PlayerPageContent() {
 
     fetch(`/api/scores?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setAllLeagueScores(data))
-      .catch(err => console.error('Error fetching all league scores:', err))
+      .then(data => setAllLeagueScores(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error('Error fetching all league scores:', err)
+        setAllLeagueScores([])
+      })
 
     fetch(`/api/players?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setAllLeaguePlayers(data))
-      .catch(err => console.error('Error fetching all league players:', err))
+      .then(data => setAllLeaguePlayers(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error('Error fetching all league players:', err)
+        setAllLeaguePlayers([])
+      })
   }
 
   const getCurrentHandicap = (): number => {
@@ -207,7 +213,7 @@ function PlayerPageContent() {
   // If winner is not eligible, winnings go to first eligible player
   // If tied among eligible winners, split evenly
   const calculateWeekWinsAndWinnings = (): { wins: number; winnings: number } => {
-    if (!playerId || allLeagueScores.length === 0 || !player) return { wins: 0, winnings: 0 }
+    if (!playerId || !Array.isArray(allLeagueScores) || allLeagueScores.length === 0 || !player) return { wins: 0, winnings: 0 }
     
     // If player is not eligible, they don't get winnings
     if (!player.winningsEligible) {
@@ -219,9 +225,11 @@ function PlayerPageContent() {
     
     // Create a map of player eligibility
     const playerEligibilityMap = new Map<number, boolean>()
-    allLeaguePlayers.forEach(p => {
-      playerEligibilityMap.set(p.id, p.winningsEligible ?? true)
-    })
+    if (Array.isArray(allLeaguePlayers) && allLeaguePlayers.length > 0) {
+      allLeaguePlayers.forEach(p => {
+        playerEligibilityMap.set(p.id, p.winningsEligible ?? true)
+      })
+    }
     
     // Check each week (1-12)
     for (let weekNum = 1; weekNum <= 12; weekNum++) {
