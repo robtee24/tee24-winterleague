@@ -142,12 +142,96 @@ export async function GET(request: Request) {
         meta: error?.meta
       })
       
-      // If column error (winningsEligible doesn't exist), try to handle gracefully
-      // by returning empty array and logging the error
+      // If column error (winningsEligible doesn't exist), try alternative query
       if (error?.code === 'P2021' || error?.message?.includes('column') || error?.message?.includes('Unknown column') || error?.message?.includes('winningsEligible')) {
-        console.log('[Matches API] Column error detected, returning empty matches array')
-        // Return empty array so pages don't crash, but log the issue
-        return NextResponse.json([])
+        console.log('[Matches API] Column error detected, trying alternative query without winningsEligible...')
+        try {
+          // First get matches without relations
+          const simpleMatches = await prisma.match.findMany({
+            where,
+            include: {
+              week: true
+            },
+            orderBy: [
+              { week: { weekNumber: 'asc' } }
+            ]
+          })
+          
+          // Get unique team IDs
+          const team1Ids = simpleMatches.map(m => m.team1Id).filter((id): id is number => id !== null)
+          const team2Ids = simpleMatches.filter(m => m.team2Id).map(m => m.team2Id!).filter((id): id is number => id !== null)
+          const allTeamIds = [...new Set([...team1Ids, ...team2Ids])]
+          
+          // Fetch teams with player select to avoid winningsEligible column
+          const allTeams = await prisma.team.findMany({
+            where: {
+              id: { in: allTeamIds }
+            },
+            include: {
+              player1: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                  leagueId: true,
+                  createdAt: true,
+                  updatedAt: true
+                }
+              },
+              player2: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                  leagueId: true,
+                  createdAt: true,
+                  updatedAt: true
+                }
+              }
+            }
+          })
+          
+          const teamMap = new Map(allTeams.map(t => [t.id, t]))
+          
+          // Construct response with manually fetched team data
+          const matchesWithTeams = simpleMatches.map(match => {
+            const result: any = {
+              ...match,
+              team1: null,
+              team2: null
+            }
+            
+            if (match.team1Id && teamMap.has(match.team1Id)) {
+              const team = teamMap.get(match.team1Id)!
+              result.team1 = {
+                ...team,
+                player1: team.player1 ? { ...team.player1, winningsEligible: true } : null,
+                player2: team.player2 ? { ...team.player2, winningsEligible: true } : null
+              }
+            }
+            
+            if (match.team2Id && teamMap.has(match.team2Id)) {
+              const team = teamMap.get(match.team2Id)!
+              result.team2 = {
+                ...team,
+                player1: team.player1 ? { ...team.player1, winningsEligible: true } : null,
+                player2: team.player2 ? { ...team.player2, winningsEligible: true } : null
+              }
+            }
+            
+            return result
+          })
+          
+          return NextResponse.json(matchesWithTeams)
+        } catch (fallbackError: any) {
+          console.error('[Matches API] Fallback query also failed:', fallbackError)
+          // If fallback also fails, return empty array to prevent page crash
+          return NextResponse.json([])
+        }
       }
       
       throw error
