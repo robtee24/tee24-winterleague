@@ -242,14 +242,19 @@ export default function LeaderboardPage() {
       : (score.total ?? null)
   }
 
-  // Get the lowest (winning) handicapped score for a specific week
+  // Get the lowest (winning) score for a specific week
   const getWinningScoreForWeek = (weekNum: number): number | null => {
-    if (activeTab !== 'weighted') return null
     if (!Array.isArray(scores)) return null
     
     const weekScores = scores.filter(s => {
       const scoreWeekNum = getWeekNumberForDisplay(s.week)
-      return scoreWeekNum === weekNum && s.weightedScore !== null && s.weightedScore !== undefined
+      if (scoreWeekNum !== weekNum) return false
+      
+      if (activeTab === 'weighted') {
+        return s.weightedScore !== null && s.weightedScore !== undefined
+      } else {
+        return s.total !== null && s.total !== undefined
+      }
     })
     
     if (weekScores.length === 0) return null
@@ -257,9 +262,12 @@ export default function LeaderboardPage() {
     // Get the most recent score per player (in case of duplicates)
     const playerScoreMap = new Map<number, number>()
     weekScores.forEach(score => {
+      const scoreValue = activeTab === 'weighted' 
+        ? score.weightedScore!
+        : score.total!
       const existing = playerScoreMap.get(score.playerId)
-      if (existing === undefined || score.weightedScore! < existing) {
-        playerScoreMap.set(score.playerId, score.weightedScore!)
+      if (existing === undefined || scoreValue < existing) {
+        playerScoreMap.set(score.playerId, scoreValue)
       }
     })
     
@@ -269,10 +277,8 @@ export default function LeaderboardPage() {
     return Math.min(...allScores)
   }
 
-  // Check if a player won a specific week (has the lowest handicapped score)
+  // Check if a player won a specific week (has the lowest score)
   const isWeekWinner = (playerId: number, weekNum: number): boolean => {
-    if (activeTab !== 'weighted') return false
-    
     const winningScore = getWinningScoreForWeek(weekNum)
     if (winningScore === null) return false
     
@@ -458,8 +464,39 @@ export default function LeaderboardPage() {
         )}
 
         {/* Individual Leaderboard */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-2xl font-bold mb-4 text-black">Individual Leaderboard</h2>
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6 relative">
+          <div className="flex justify-between items-start mb-4">
+            <h2 className="text-2xl font-bold text-black">Individual Leaderboard</h2>
+            {/* Legend */}
+            {activeTab === 'weighted' && (
+              <div className="bg-gray-50 border border-gray-300 rounded-lg p-3 text-sm min-w-[250px]">
+                <div className="font-semibold mb-2">Color Key:</div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 border border-gray-300 rounded" style={{ background: 'linear-gradient(to bottom right, #fef3c7 0%, #fef3c7 50%, #dcfce7 50%, #dcfce7 100%)' }}></div>
+                    <span>Overall & Money Winner</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 bg-green-100 border border-gray-300 rounded"></div>
+                    <span>Money Winner</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 bg-yellow-100 border border-gray-300 rounded"></div>
+                    <span>Overall Winner</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            {activeTab === 'unweighted' && (
+              <div className="bg-gray-50 border border-gray-300 rounded-lg p-3 text-sm min-w-[200px]">
+                <div className="font-semibold mb-2">Color Key:</div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 bg-yellow-100 border border-gray-300 rounded"></div>
+                  <span>Week Winner</span>
+                </div>
+              </div>
+            )}
+          </div>
           
           {/* Tabs */}
           <div className="flex gap-2 mb-4">
@@ -608,12 +645,14 @@ export default function LeaderboardPage() {
                           )
                         }
                         
-                        // For Non-Handicapped Scores tab, show normally
+                        // For Non-Handicapped Scores tab, show normally with winner highlighting
+                        const isWinnerUnweighted = isWeekWinner(player.id, weekNumber)
                         return (
                           <td
                             key={weekNumber}
                             className={`border border-gray-300 px-4 py-2 text-center ${
-                              score === undefined ? 'bg-red-100' : ''
+                              score === undefined ? 'bg-red-100' : 
+                              isWinnerUnweighted ? 'bg-yellow-100' : ''
                             }`}
                           >
                             {score !== undefined ? score : '-'}
