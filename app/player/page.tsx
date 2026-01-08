@@ -301,9 +301,25 @@ function PlayerPageContent() {
     )
   }
 
+  // Helper function to check if all players have submitted scores for a week
+  const allPlayersSubmittedForWeek = (weekNum: number): boolean => {
+    if (!Array.isArray(allLeaguePlayers) || !Array.isArray(allLeagueScores) || allLeaguePlayers.length === 0) {
+      return false
+    }
+    
+    const weekScores = allLeagueScores.filter(s => {
+      const scoreWeekNum = getWeekNumberForDisplay(s.week)
+      return scoreWeekNum === weekNum && s.total !== null && s.total !== undefined
+    })
+    
+    const playersWithScores = new Set(weekScores.map(s => s.playerId))
+    return playersWithScores.size === allLeaguePlayers.length
+  }
+
   // Calculate week wins and total winnings (weeks where player had the lowest handicapped score)
   // If winner is not eligible, winnings go to first eligible player
   // If tied among eligible winners, split evenly
+  // Winnings are only calculated if all players have submitted scores for that week
   const calculateWeekWinsAndWinnings = (): { wins: number; winnings: number } => {
     try {
       if (!playerId || !Array.isArray(allLeagueScores) || allLeagueScores.length === 0 || !player) {
@@ -328,6 +344,11 @@ function PlayerPageContent() {
     
     // Check each week (1-12)
     for (let weekNum = 1; weekNum <= 12; weekNum++) {
+      // Skip this week if not all players have submitted scores
+      if (!allPlayersSubmittedForWeek(weekNum)) {
+        continue
+      }
+      
       // Get all scores for this week
       const weekScores = allLeagueScores.filter(s => {
         const displayWeek = getWeekNumberForDisplay(s.week)
