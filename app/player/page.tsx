@@ -125,28 +125,43 @@ function PlayerPageContent() {
 
     fetch(`/api/scores?playerId=${playerId}&leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setScores(data))
-      .catch(err => console.error('Error fetching scores:', err))
+      .then(data => setScores(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error('Error fetching scores:', err)
+        setScores([])
+      })
 
     fetch(`/api/handicaps?playerId=${playerId}`)
       .then(res => res.json())
-      .then(data => setHandicaps(data))
-      .catch(err => console.error('Error fetching handicaps:', err))
+      .then(data => setHandicaps(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error('Error fetching handicaps:', err)
+        setHandicaps([])
+      })
 
     fetch(`/api/teams?playerId=${playerId}&leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setTeams(data))
-      .catch(err => console.error('Error fetching teams:', err))
+      .then(data => setTeams(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error('Error fetching teams:', err)
+        setTeams([])
+      })
 
     fetch(`/api/weeks?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setWeeks(data))
-      .catch(err => console.error('Error fetching weeks:', err))
+      .then(data => setWeeks(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error('Error fetching weeks:', err)
+        setWeeks([])
+      })
 
     fetch(`/api/matches?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setMatches(data))
-      .catch(err => console.error('Error fetching matches:', err))
+      .then(data => setMatches(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error('Error fetching matches:', err)
+        setMatches([])
+      })
 
     fetch(`/api/scores?leagueId=${leagueId}`)
       .then(res => res.json())
@@ -166,7 +181,7 @@ function PlayerPageContent() {
   }
 
   const getCurrentHandicap = (): number => {
-    if (handicaps.length === 0) return 0
+    if (!Array.isArray(handicaps) || handicaps.length === 0) return 0
     
     // Get the most recent non-zero handicap
     const sortedHandicaps = [...handicaps].sort((a, b) => {
@@ -180,6 +195,7 @@ function PlayerPageContent() {
   }
 
   const getScoreForWeek = (weekNumber: number): Score | null => {
+    if (!Array.isArray(scores)) return null
     return scores.find(s => {
       const displayWeek = getWeekNumberForDisplay(s.week)
       return displayWeek === weekNumber
@@ -187,23 +203,27 @@ function PlayerPageContent() {
   }
 
   const getHandicapForWeek = (weekNumber: number): number => {
+    if (!Array.isArray(weeks)) return 0
     const week = weeks.find(w => 
             weekNumber === 12 ? w.isChampionship : (w.weekNumber === weekNumber && !w.isChampionship)
     )
     if (!week) return 0
     
+    if (!Array.isArray(handicaps)) return 0
     const handicap = handicaps.find(h => h.weekId === week.id)
     return handicap?.handicap || 0
   }
 
   const getPlayerTeams = (): Team[] => {
     if (!playerId) return []
+    if (!Array.isArray(teams)) return []
     return teams.filter(team => 
       team.player1.id === parseInt(playerId) || team.player2.id === parseInt(playerId)
     )
   }
 
   const getTeamMatches = (teamId: number): Match[] => {
+    if (!Array.isArray(matches)) return []
     return matches.filter(match => 
       (match.team1Id === teamId || match.team2Id === teamId) && match.team2Id !== null
     )
@@ -299,13 +319,19 @@ function PlayerPageContent() {
   // Calculate team record (wins, losses, and ties)
   const getTeamRecord = (): { wins: number; losses: number; ties: number } => {
     if (!playerId) return { wins: 0, losses: 0, ties: 0 }
+    if (!Array.isArray(allLeagueScores)) return { wins: 0, losses: 0, ties: 0 }
     
     let wins = 0
     let losses = 0
     let ties = 0
     
+    const playerTeams = getPlayerTeams()
+    if (!Array.isArray(playerTeams)) return { wins: 0, losses: 0, ties: 0 }
+    
     playerTeams.forEach(team => {
       const teamMatches = getTeamMatches(team.id)
+      
+      if (!Array.isArray(teamMatches)) return
       
       teamMatches.forEach(match => {
         if (!match.team2Id || !match.team2) return
@@ -418,7 +444,7 @@ function PlayerPageContent() {
               <h2 className="text-lg font-bold text-gray-800 mb-4">Team</h2>
               <div>
                 <h3 className="text-sm font-semibold text-gray-600 mb-2">Team Assignments</h3>
-                {playerTeams.length > 0 ? (
+                {Array.isArray(playerTeams) && playerTeams.length > 0 ? (
                   <div className="space-y-2">
                     {playerTeams.map(team => {
                       const partner = team.player1.id === player.id ? team.player2 : team.player1
@@ -536,15 +562,17 @@ function PlayerPageContent() {
         </div>
 
         {/* Team Matches Section */}
-        {playerTeams.length > 0 && (() => {
+        {Array.isArray(playerTeams) && playerTeams.length > 0 && (() => {
           const allTeamMatches = playerTeams.flatMap(team => {
             const teamMatches = getTeamMatches(team.id)
+            if (!Array.isArray(teamMatches)) return []
+            return teamMatches
               .sort((a, b) => {
                 const weekA = getWeekNumberForDisplay(a.week)
                 const weekB = getWeekNumberForDisplay(b.week)
                 return weekA - weekB
               })
-            return teamMatches.map(match => ({ match, team }))
+              .map(match => ({ match, team }))
           }).sort((a, b) => {
             const weekA = getWeekNumberForDisplay(a.match.week)
             const weekB = getWeekNumberForDisplay(b.match.week)
