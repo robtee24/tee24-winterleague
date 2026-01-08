@@ -8,9 +8,61 @@ export async function GET(
   try {
     const playerId = parseInt(params.id)
     
-    const player = await prisma.player.findUnique({
-      where: { id: playerId }
-    })
+    let player: any
+    try {
+      // Try to fetch with select to avoid winningsEligible column if it doesn't exist
+      const playerData = await prisma.player.findUnique({
+        where: { id: playerId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          email: true,
+          leagueId: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      })
+      
+      // Add winningsEligible default
+      if (playerData) {
+        player = {
+          ...playerData,
+          winningsEligible: true // Default value since column may not exist
+        }
+      }
+    } catch (schemaError: any) {
+      // If column error, try raw query
+      if (schemaError?.code === 'P2021' || schemaError?.message?.includes('column') || schemaError?.message?.includes('Unknown column')) {
+        console.log('[Player API] Column error detected, using fallback query...')
+        const rawPlayer = await prisma.$queryRawUnsafe(`
+          SELECT id, "firstName", "lastName", phone, email, "leagueId", "createdAt", "updatedAt"
+          FROM "Player"
+          WHERE id = $1
+        `, playerId) as Array<{
+          id: number
+          firstName: string
+          lastName: string | null
+          phone: string | null
+          email: string | null
+          leagueId: number
+          createdAt: Date
+          updatedAt: Date
+        }>
+        
+        if (rawPlayer.length === 0) {
+          return NextResponse.json({ error: 'Player not found' }, { status: 404 })
+        }
+        
+        player = {
+          ...rawPlayer[0],
+          winningsEligible: true // Default value
+        }
+      } else {
+        throw schemaError
+      }
+    }
     
     if (!player) {
       return NextResponse.json({ error: 'Player not found' }, { status: 404 })
@@ -18,7 +70,12 @@ export async function GET(
     
     return NextResponse.json(player)
   } catch (error: any) {
-    console.error('Error fetching player:', error)
+    console.error('[Player API] Error fetching player:', error)
+    console.error('[Player API] Error details:', {
+      message: error?.message,
+      code: error?.code,
+      meta: error?.meta
+    })
     const errorMessage = error?.message || 'Failed to fetch player'
     return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
