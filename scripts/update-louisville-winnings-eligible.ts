@@ -26,29 +26,25 @@ async function updateLouisvilleWinningsEligible() {
 
     // Step 2: Set specific players to eligible
     const eligiblePlayers = [
-      'BJ Nichols',
-      'Jay Sharp',
-      'TJ Mcnelis',
-      'Matthew Ansert',
-      'Cody Wheeler',
-      'Eric Johnson',
-      'Ben Martin',
-      'Jody Speaks',
-      'Tyler Langdon'
+      { firstName: 'BJ', lastName: 'Nichols' },
+      { firstName: 'Jay', lastName: 'Sharp' },
+      { firstName: 'TJ', lastName: 'Mcnelis' },
+      { firstName: 'Matthew', lastName: 'Ansert' },
+      { firstName: 'Cody', lastName: 'Wheeler' },
+      { firstName: 'Eric', lastName: 'Johnson' },
+      { firstName: 'Ben', lastName: 'Martin' },
+      { firstName: 'Jody', lastName: 'Speaks' },
+      { firstName: 'Tyler', lastName: 'Langdon' }
     ]
 
     let updatedCount = 0
-    for (const playerName of eligiblePlayers) {
-      const nameParts = playerName.trim().split(/\s+/)
-      const firstName = nameParts[0]
-      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null
-
+    for (const { firstName, lastName } of eligiblePlayers) {
       // Try to find player by first name and last name
       const player = await prisma.player.findFirst({
         where: {
           leagueId: louisvilleLeague.id,
           firstName: firstName,
-          lastName: lastName || null
+          lastName: lastName
         }
       })
 
@@ -57,10 +53,10 @@ async function updateLouisvilleWinningsEligible() {
           where: { id: player.id },
           data: { winningsEligible: true }
         })
-        console.log(`✓ Set ${playerName} (${player.firstName} ${player.lastName}) to eligible`)
+        console.log(`✓ Set ${firstName} ${lastName} to eligible`)
         updatedCount++
       } else {
-        console.log(`✗ Could not find player: ${playerName}`)
+        console.log(`✗ Could not find player: ${firstName} ${lastName}`)
       }
     }
 
