@@ -20,33 +20,116 @@ export async function GET(request: Request) {
       where.week = { leagueId: parseInt(leagueId) }
     }
 
-    const matches = await prisma.match.findMany({
-      where,
-      include: {
-        team1: {
-          include: {
-            player1: true,
-            player2: true
-          }
+    let matches
+    try {
+      matches = await prisma.match.findMany({
+        where,
+        include: {
+          team1: {
+            include: {
+              player1: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                  leagueId: true,
+                  createdAt: true,
+                  updatedAt: true
+                }
+              },
+              player2: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                  leagueId: true,
+                  createdAt: true,
+                  updatedAt: true
+                }
+              }
+            }
+          },
+          team2: {
+            include: {
+              player1: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                  leagueId: true,
+                  createdAt: true,
+                  updatedAt: true
+                }
+              },
+              player2: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                  leagueId: true,
+                  createdAt: true,
+                  updatedAt: true
+                }
+              }
+            }
+          },
+          week: true
         },
-        team2: {
-          include: {
-            player1: true,
-            player2: true
-          }
-        },
-        week: true
-      },
-      orderBy: [
-        { week: { weekNumber: 'asc' } },
-        { team1: { teamNumber: 'asc' } }
-      ]
-    })
+        orderBy: [
+          { week: { weekNumber: 'asc' } },
+          { team1: { teamNumber: 'asc' } }
+        ]
+      })
+      
+      // Add winningsEligible default to each player in the response
+      const matchesWithDefaults = matches.map(match => ({
+        ...match,
+        team1: match.team1 ? {
+          ...match.team1,
+          player1: {
+            ...match.team1.player1,
+            winningsEligible: (match.team1.player1 as any).winningsEligible ?? true
+          },
+          player2: match.team1.player2 ? {
+            ...match.team1.player2,
+            winningsEligible: (match.team1.player2 as any).winningsEligible ?? true
+          } : null
+        } : null,
+        team2: match.team2 ? {
+          ...match.team2,
+          player1: match.team2.player1 ? {
+            ...match.team2.player1,
+            winningsEligible: (match.team2.player1 as any).winningsEligible ?? true
+          } : null,
+          player2: match.team2.player2 ? {
+            ...match.team2.player2,
+            winningsEligible: (match.team2.player2 as any).winningsEligible ?? true
+          } : null
+        } : null
+      }))
 
-    return NextResponse.json(matches)
-  } catch (error) {
-    console.error('Error fetching matches:', error)
-    return NextResponse.json({ error: 'Failed to fetch matches' }, { status: 500 })
+      return NextResponse.json(matchesWithDefaults)
+    } catch (error: any) {
+      console.error('[Matches API] Error fetching matches:', error)
+      console.error('[Matches API] Error details:', {
+        message: error?.message,
+        code: error?.code,
+        meta: error?.meta
+      })
+      throw error
+    }
+  } catch (error: any) {
+    console.error('[Matches API] Final error:', error)
+    const errorMessage = error?.message || 'Failed to fetch matches'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }
 
@@ -85,14 +168,58 @@ export async function POST(request: Request) {
       include: {
         team1: {
           include: {
-            player1: true,
-            player2: true
+            player1: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                email: true,
+                leagueId: true,
+                createdAt: true,
+                updatedAt: true
+              }
+            },
+            player2: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                email: true,
+                leagueId: true,
+                createdAt: true,
+                updatedAt: true
+              }
+            }
           }
         },
         team2: {
           include: {
-            player1: true,
-            player2: true
+            player1: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                email: true,
+                leagueId: true,
+                createdAt: true,
+                updatedAt: true
+              }
+            },
+            player2: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                email: true,
+                leagueId: true,
+                createdAt: true,
+                updatedAt: true
+              }
+            }
           }
         },
         week: true

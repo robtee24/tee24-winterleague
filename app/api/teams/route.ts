@@ -21,23 +21,70 @@ export async function GET(request: Request) {
       ]
     }
 
-    const teams = await prisma.team.findMany({
-      where,
-      include: {
-        player1: true,
-        player2: true,
-        league: true
-      },
-      orderBy: [
-        { leagueId: 'asc' },
-        { teamNumber: 'asc' }
-      ]
-    })
+    let teams
+    try {
+      teams = await prisma.team.findMany({
+        where,
+        include: {
+          player1: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+              email: true,
+              leagueId: true,
+              createdAt: true,
+              updatedAt: true
+            }
+          },
+          player2: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+              email: true,
+              leagueId: true,
+              createdAt: true,
+              updatedAt: true
+            }
+          },
+          league: true
+        },
+        orderBy: [
+          { leagueId: 'asc' },
+          { teamNumber: 'asc' }
+        ]
+      })
+      
+      // Add winningsEligible default to each player in the response
+      const teamsWithDefaults = teams.map(team => ({
+        ...team,
+        player1: {
+          ...team.player1,
+          winningsEligible: (team.player1 as any).winningsEligible ?? true
+        },
+        player2: {
+          ...team.player2,
+          winningsEligible: (team.player2 as any).winningsEligible ?? true
+        }
+      }))
 
-    return NextResponse.json(teams)
-  } catch (error) {
-    console.error('Error fetching teams:', error)
-    return NextResponse.json({ error: 'Failed to fetch teams' }, { status: 500 })
+      return NextResponse.json(teamsWithDefaults)
+    } catch (error: any) {
+      console.error('[Teams API] Error fetching teams:', error)
+      console.error('[Teams API] Error details:', {
+        message: error?.message,
+        code: error?.code,
+        meta: error?.meta
+      })
+      throw error
+    }
+  } catch (error: any) {
+    console.error('[Teams API] Final error:', error)
+    const errorMessage = error?.message || 'Failed to fetch teams'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }
 
@@ -113,8 +160,30 @@ export async function POST(request: Request) {
         player2Id: parseInt(player2Id)
       },
       include: {
-        player1: true,
-        player2: true
+        player1: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            email: true,
+            leagueId: true,
+            createdAt: true,
+            updatedAt: true
+          }
+        },
+        player2: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            email: true,
+            leagueId: true,
+            createdAt: true,
+            updatedAt: true
+          }
+        }
       }
     })
 
