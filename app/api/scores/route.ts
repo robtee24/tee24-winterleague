@@ -740,22 +740,143 @@ export async function GET(request: Request) {
       }
     }
 
-    const scores = await prisma.score.findMany({
-      where,
-      include: {
-        player: true,
-        week: true
-      },
-      orderBy: [
+    let scores
+    try {
+      scores = await prisma.score.findMany({
+        where,
+        include: {
+          player: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+              email: true,
+              leagueId: true,
+              createdAt: true,
+              updatedAt: true
+            }
+          },
+          week: true
+        },
+        orderBy: [
         { week: { weekNumber: 'asc' } },
         { player: { firstName: 'asc' } }
       ]
     })
+    
+    // Add winningsEligible default to each player in the response
+    const scoresWithDefaults = scores.map(score => ({
+      ...score,
+      player: {
+        ...score.player,
+        winningsEligible: (score.player as any).winningsEligible ?? true
+      }
+    }))
 
-    return NextResponse.json(scores)
-  } catch (error) {
-    console.error('Error fetching scores:', error)
-    return NextResponse.json({ error: 'Failed to fetch scores' }, { status: 500 })
+    return NextResponse.json(scoresWithDefaults)
+    } catch (error: any) {
+      console.error('[Scores API] Error fetching scores:', error)
+      console.error('[Scores API] Error details:', {
+        message: error?.message,
+        code: error?.code,
+        meta: error?.meta
+      })
+      
+      // If column error, try with raw query for player relation
+      if (error?.code === 'P2021' || error?.message?.includes('column') || error?.message?.includes('Unknown column')) {
+        try {
+          console.log('[Scores API] Retrying with raw query for player...')
+          // Build WHERE clause for raw query
+          let whereClause = ''
+          const conditions: string[] = []
+          if (where.weekId) conditions.push(`s."weekId" = ${where.weekId}`)
+          if (where.playerId) conditions.push(`s."playerId" = ${where.playerId}`)
+          if (where.player?.leagueId) conditions.push(`p."leagueId" = ${where.player.leagueId}`)
+          if (where.week?.weekNumber) {
+            conditions.push(`w."weekNumber" = ${where.week.weekNumber}`)
+            conditions.push(`w."isChampionship" = false`)
+          }
+          if (where.week?.leagueId) conditions.push(`w."leagueId" = ${where.week.leagueId}`)
+          
+          if (conditions.length > 0) {
+            whereClause = 'WHERE ' + conditions.join(' AND ')
+          }
+          
+          // Use raw query as fallback
+          const rawScores = await prisma.$queryRawUnsafe(`
+            SELECT s.*, 
+                   p.id as "player_id", p."firstName" as "player_firstName", p."lastName" as "player_lastName",
+                   p.phone as "player_phone", p.email as "player_email", p."leagueId" as "player_leagueId",
+                   w.id as "week_id", w."weekNumber" as "week_weekNumber", w."leagueId" as "week_leagueId",
+                   w."isChampionship" as "week_isChampionship"
+            FROM "Score" s
+            JOIN "Player" p ON s."playerId" = p.id
+            JOIN "Week" w ON s."weekId" = w.id
+            ${whereClause}
+            ORDER BY w."weekNumber" ASC, p."firstName" ASC
+          `) as any[]
+          
+          // Transform raw results to match expected format
+          const formattedScores = rawScores.map((row: any) => ({
+            id: row.id,
+            playerId: row.playerId,
+            weekId: row.weekId,
+            hole1: row.hole1,
+            hole2: row.hole2,
+            hole3: row.hole3,
+            hole4: row.hole4,
+            hole5: row.hole5,
+            hole6: row.hole6,
+            hole7: row.hole7,
+            hole8: row.hole8,
+            hole9: row.hole9,
+            hole10: row.hole10,
+            hole11: row.hole11,
+            hole12: row.hole12,
+            hole13: row.hole13,
+            hole14: row.hole14,
+            hole15: row.hole15,
+            hole16: row.hole16,
+            hole17: row.hole17,
+            hole18: row.hole18,
+            front9: row.front9,
+            back9: row.back9,
+            total: row.total,
+            weightedScore: row.weightedScore,
+            scorecardImage: row.scorecardImage,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            player: {
+              id: row.player_id,
+              firstName: row.player_firstName,
+              lastName: row.player_lastName,
+              phone: row.player_phone,
+              email: row.player_email,
+              leagueId: row.player_leagueId,
+              winningsEligible: true // Default
+            },
+            week: {
+              id: row.week_id,
+              weekNumber: row.week_weekNumber,
+              leagueId: row.week_leagueId,
+              isChampionship: row.week_isChampionship
+            }
+          }))
+          
+          return NextResponse.json(formattedScores)
+        } catch (retryError: any) {
+          console.error('[Scores API] Retry also failed:', retryError)
+          throw error // Re-throw original error
+        }
+      }
+      
+      throw error // Re-throw if not a column error
+    }
+  } catch (error: any) {
+    console.error('[Scores API] Final error:', error)
+    const errorMessage = error?.message || 'Failed to fetch scores'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }
 
