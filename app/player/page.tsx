@@ -118,16 +118,52 @@ function PlayerPageContent() {
   const loadData = () => {
     if (!playerId || !leagueId) return
 
+    console.log('[PlayerPage] Loading data for player:', playerId, 'league:', leagueId)
+
     fetch(`/api/players/${playerId}`)
-      .then(res => res.json())
-      .then(data => setPlayer(data))
-      .catch(err => console.error('Error fetching player:', err))
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch player: ${res.status} ${res.statusText}`)
+        }
+        return res.json()
+      })
+      .then(data => {
+        console.log('[PlayerPage] Player data loaded:', { 
+          id: data?.id, 
+          name: `${data?.firstName} ${data?.lastName}`,
+          winningsEligible: data?.winningsEligible,
+          isArray: Array.isArray(data),
+          type: typeof data
+        })
+        setPlayer(data)
+      })
+      .catch(err => {
+        console.error('[PlayerPage] Error fetching player:', err)
+        setPlayer(null)
+      })
 
     fetch(`/api/scores?playerId=${playerId}&leagueId=${leagueId}`)
-      .then(res => res.json())
-      .then(data => setScores(Array.isArray(data) ? data : []))
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch scores: ${res.status} ${res.statusText}`)
+        }
+        return res.json()
+      })
+      .then(data => {
+        const isArray = Array.isArray(data)
+        console.log('[PlayerPage] Scores loaded:', { 
+          count: isArray ? data.length : 0,
+          isArray,
+          type: typeof data,
+          sample: isArray && data.length > 0 ? data[0] : null
+        })
+        if (!isArray) {
+          console.warn('[PlayerPage] Scores data is not an array!', data)
+        }
+        setScores(isArray ? data : [])
+      })
       .catch(err => {
-        console.error('Error fetching scores:', err)
+        console.error('[PlayerPage] Error fetching scores:', err)
         setScores([])
       })
 
@@ -172,13 +208,49 @@ function PlayerPageContent() {
       })
 
     fetch(`/api/players?leagueId=${leagueId}`)
-      .then(res => res.json())
-      .then(data => setAllLeaguePlayers(Array.isArray(data) ? data : []))
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch all league players: ${res.status} ${res.statusText}`)
+        }
+        return res.json()
+      })
+      .then(data => {
+        const isArray = Array.isArray(data)
+        console.log('[PlayerPage] All league players loaded:', { 
+          count: isArray ? data.length : 0,
+          isArray,
+          type: typeof data,
+          hasWinningsEligible: isArray && data.length > 0 ? 'winningsEligible' in data[0] : false
+        })
+        if (!isArray) {
+          console.error('[PlayerPage] All league players data is not an array!', data)
+        }
+        setAllLeaguePlayers(isArray ? data : [])
+      })
       .catch(err => {
-        console.error('Error fetching all league players:', err)
+        console.error('[PlayerPage] Error fetching all league players:', err)
         setAllLeaguePlayers([])
       })
   }
+
+  // Debug function to log current state
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[PlayerPage] State check:', {
+        player: !!player,
+        scoresIsArray: Array.isArray(scores),
+        scoresLength: Array.isArray(scores) ? scores.length : 'N/A',
+        handicapsIsArray: Array.isArray(handicaps),
+        teamsIsArray: Array.isArray(teams),
+        matchesIsArray: Array.isArray(matches),
+        weeksIsArray: Array.isArray(weeks),
+        allLeagueScoresIsArray: Array.isArray(allLeagueScores),
+        allLeaguePlayersIsArray: Array.isArray(allLeaguePlayers),
+        allLeagueScoresLength: Array.isArray(allLeagueScores) ? allLeagueScores.length : 'N/A',
+        allLeaguePlayersLength: Array.isArray(allLeaguePlayers) ? allLeaguePlayers.length : 'N/A'
+      })
+    }
+  }, [player, scores, handicaps, teams, matches, weeks, allLeagueScores, allLeaguePlayers])
 
   const getCurrentHandicap = (): number => {
     if (!Array.isArray(handicaps) || handicaps.length === 0) return 0
@@ -233,7 +305,10 @@ function PlayerPageContent() {
   // If winner is not eligible, winnings go to first eligible player
   // If tied among eligible winners, split evenly
   const calculateWeekWinsAndWinnings = (): { wins: number; winnings: number } => {
-    if (!playerId || !Array.isArray(allLeagueScores) || allLeagueScores.length === 0 || !player) return { wins: 0, winnings: 0 }
+    try {
+      if (!playerId || !Array.isArray(allLeagueScores) || allLeagueScores.length === 0 || !player) {
+        return { wins: 0, winnings: 0 }
+      }
     
     // If player is not eligible, they don't get winnings
     if (!player.winningsEligible) {
@@ -313,7 +388,20 @@ function PlayerPageContent() {
       totalWinnings += weekWinnings
     }
     
-    return { wins, winnings: totalWinnings }
+      return { wins, winnings: totalWinnings }
+    } catch (error: any) {
+      console.error('[PlayerPage] Error in calculateWeekWinsAndWinnings:', {
+        error: error.message,
+        stack: error.stack,
+        playerId,
+        allLeagueScoresIsArray: Array.isArray(allLeagueScores),
+        allLeagueScoresLength: Array.isArray(allLeagueScores) ? allLeagueScores.length : 'N/A',
+        allLeaguePlayersIsArray: Array.isArray(allLeaguePlayers),
+        allLeaguePlayersLength: Array.isArray(allLeaguePlayers) ? allLeaguePlayers.length : 'N/A',
+        player: !!player
+      })
+      return { wins: 0, winnings: 0 }
+    }
   }
 
   // Calculate team record (wins, losses, and ties)
