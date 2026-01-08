@@ -22,56 +22,114 @@ export default function PhotoPage() {
     setSubmissionData(JSON.parse(data))
   }, [router])
 
-  // Compress image to reduce file size
-  const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.8): Promise<File> => {
+  // Compress image to reduce file size - always compresses, iteratively reduces until target size is met
+  const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.85, targetSizeBytes?: number): Promise<File> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = (e) => {
         const img = document.createElement('img')
-        img.onload = () => {
-          const canvas = document.createElement('canvas')
-          let width = img.width
-          let height = img.height
-
-          // Calculate new dimensions
-          if (width > height) {
-            if (width > maxWidth) {
-              height = (height * maxWidth) / width
-              width = maxWidth
+        img.onload = async () => {
+          const originalWidth = img.width
+          const originalHeight = img.height
+          let currentWidth = originalWidth
+          let currentHeight = originalHeight
+          
+          // Calculate initial dimensions
+          if (currentWidth > currentHeight) {
+            if (currentWidth > maxWidth) {
+              currentHeight = (currentHeight * maxWidth) / currentWidth
+              currentWidth = maxWidth
             }
           } else {
-            if (height > maxHeight) {
-              width = (width * maxHeight) / height
-              height = maxHeight
+            if (currentHeight > maxHeight) {
+              currentWidth = (currentWidth * maxHeight) / currentHeight
+              currentHeight = maxHeight
             }
           }
 
-          canvas.width = width
-          canvas.height = height
+          // Quality steps to try
+          const qualitySteps = [quality, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]
+          
+          // Try different quality and dimension combinations
+          const tryCompress = async (width: number, height: number, compressionQuality: number): Promise<File | null> => {
+            return new Promise((resolveCompress) => {
+              const canvas = document.createElement('canvas')
+              canvas.width = width
+              canvas.height = height
 
-          const ctx = canvas.getContext('2d')
-          if (!ctx) {
-            reject(new Error('Could not get canvas context'))
-            return
-          }
-
-          ctx.drawImage(img, 0, 0, width, height)
-
-          canvas.toBlob(
-            (blob) => {
-              if (!blob) {
-                reject(new Error('Failed to compress image'))
+              const ctx = canvas.getContext('2d')
+              if (!ctx) {
+                resolveCompress(null)
                 return
               }
-              const compressedFile = new File([blob], file.name, {
-                type: 'image/jpeg',
-                lastModified: Date.now()
-              })
-              resolve(compressedFile)
-            },
-            'image/jpeg',
-            quality
-          )
+
+              // Improve image quality settings
+              ctx.imageSmoothingEnabled = true
+              ctx.imageSmoothingQuality = 'high'
+              ctx.drawImage(img, 0, 0, width, height)
+
+              canvas.toBlob(
+                (blob) => {
+                  if (!blob) {
+                    resolveCompress(null)
+                    return
+                  }
+                  
+                  resolveCompress(new File([blob], file.name, {
+                    type: 'image/jpeg',
+                    lastModified: Date.now()
+                  }))
+                },
+                'image/jpeg',
+                compressionQuality
+              )
+            })
+          }
+
+          // Try compression with progressively lower quality and smaller dimensions
+          let bestFile: File | null = null
+          
+          for (let qualityIndex = 0; qualityIndex < qualitySteps.length; qualityIndex++) {
+            const currentQuality = qualitySteps[qualityIndex]
+            
+            // Try current dimensions with current quality
+            const compressed = await tryCompress(currentWidth, currentHeight, currentQuality)
+            
+            if (!compressed) {
+              continue
+            }
+            
+            // If we hit the target size, we're done!
+            if (targetSizeBytes && compressed.size <= targetSizeBytes) {
+              resolve(compressed)
+              return
+            }
+            
+            // Keep the smallest file so far
+            if (!bestFile || compressed.size < bestFile.size) {
+              bestFile = compressed
+            }
+            
+            // If we're still too large and haven't reduced dimensions yet, try smaller dimensions
+            if (targetSizeBytes && compressed.size > targetSizeBytes && qualityIndex >= 2) {
+              // Reduce dimensions progressively
+              const scaleFactor = 0.9
+              currentWidth = Math.floor(currentWidth * scaleFactor)
+              currentHeight = Math.floor(currentHeight * scaleFactor)
+              
+              // Make sure we don't go too small
+              if (currentWidth < 640 || currentHeight < 640) {
+                break
+              }
+            }
+          }
+
+          // Return the best compression we achieved
+          if (bestFile) {
+            resolve(bestFile)
+          } else {
+            reject(new Error('Failed to compress image'))
+          }
         }
         img.onerror = () => reject(new Error('Failed to load image'))
         img.src = e.target?.result as string
@@ -84,51 +142,57 @@ export default function PhotoPage() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
-      // Check file size (4MB limit for Vercel)
-      const maxSize = 4 * 1024 * 1024 // 4MB in bytes
+      // Always compress images - target 2MB to be well under Vercel's 4.5MB limit
+      const targetSize = 2 * 1024 * 1024 // 2MB target
+      const maxSize = 4.5 * 1024 * 1024 // 4.5MB hard limit (Vercel's limit)
       
-      if (selectedFile.size > maxSize) {
-        console.log('File too large, compressing...', { originalSize: selectedFile.size })
-        try {
-          // Compress the image
-          const compressedFile = await compressImage(selectedFile)
-          console.log('Image compressed:', { 
-            originalSize: selectedFile.size, 
-            compressedSize: compressedFile.size,
-            reduction: `${Math.round((1 - compressedFile.size / selectedFile.size) * 100)}%`
-          })
+      console.log('Processing image:', { 
+        originalSize: selectedFile.size, 
+        originalSizeMB: (selectedFile.size / 1024 / 1024).toFixed(2) + ' MB'
+      })
+      
+      try {
+        // Always compress, with a target of 2MB
+        const compressedFile = await compressImage(selectedFile, 1920, 1920, 0.85, targetSize)
+        
+        console.log('Image processed:', { 
+          originalSize: selectedFile.size, 
+          originalSizeMB: (selectedFile.size / 1024 / 1024).toFixed(2) + ' MB',
+          compressedSize: compressedFile.size,
+          compressedSizeMB: (compressedFile.size / 1024 / 1024).toFixed(2) + ' MB',
+          reduction: `${Math.round((1 - compressedFile.size / selectedFile.size) * 100)}%`
+        })
+        
+        // If somehow still over the hard limit, try one more aggressive pass
+        if (compressedFile.size > maxSize) {
+          console.warn('Image still too large after compression, trying more aggressive compression...')
+          const finalCompressed = await compressImage(selectedFile, 1280, 1280, 0.5, targetSize)
           
-          // If still too large after compression, compress more aggressively
-          if (compressedFile.size > maxSize) {
-            const moreCompressed = await compressImage(selectedFile, 1280, 1280, 0.6)
-            setFile(moreCompressed)
-            const reader = new FileReader()
-            reader.onloadend = () => {
-              setPreview(reader.result as string)
-            }
-            reader.readAsDataURL(moreCompressed)
-          } else {
-            setFile(compressedFile)
-            setFileSize(compressedFile.size)
-            const reader = new FileReader()
-            reader.onloadend = () => {
-              setPreview(reader.result as string)
-            }
-            reader.readAsDataURL(compressedFile)
+          if (finalCompressed.size > maxSize) {
+            alert(`Image is still too large after compression (${(finalCompressed.size / 1024 / 1024).toFixed(2)} MB). Please try a different image or text your score to 502-200-1044.`)
+            return
           }
-        } catch (error) {
-          console.error('Error compressing image:', error)
-          alert('Error processing image. Please try a smaller image or text your score to 502-200-1044.')
-          return
+          
+          setFile(finalCompressed)
+          setFileSize(finalCompressed.size)
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            setPreview(reader.result as string)
+          }
+          reader.readAsDataURL(finalCompressed)
+        } else {
+          setFile(compressedFile)
+          setFileSize(compressedFile.size)
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            setPreview(reader.result as string)
+          }
+          reader.readAsDataURL(compressedFile)
         }
-      } else {
-        setFile(selectedFile)
-        setFileSize(selectedFile.size)
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          setPreview(reader.result as string)
-        }
-        reader.readAsDataURL(selectedFile)
+      } catch (error) {
+        console.error('Error compressing image:', error)
+        alert('Error processing image. Please try a different image or text your score to 502-200-1044.')
+        return
       }
     }
   }
