@@ -550,7 +550,7 @@ function PlayerPageContent() {
                             <td className="border border-gray-300 px-4 py-2 text-center">
                               {opponent ? (
                                 <Link
-                                  href={`/league-manager/match?matchId=${match.id}&leagueId=${leagueId}`}
+                                  href={`/match?matchId=${match.id}&leagueId=${leagueId}`}
                                   className={`font-semibold hover:underline ${
                                     isWin ? 'text-green-600' : 
                                     isLoss ? 'text-red-600' : 

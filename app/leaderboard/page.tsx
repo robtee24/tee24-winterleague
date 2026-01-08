@@ -555,7 +555,7 @@ export default function LeaderboardPage() {
                               
                               cellContent = (
                                 <Link
-                                  href={`/league-manager/match?matchId=${match.id}&leagueId=${selectedLeagueId}`}
+                                  href={`/match?matchId=${match.id}&leagueId=${selectedLeagueId}`}
                                   className={`text-sm hover:underline ${
                                     isWin ? 'text-green-600 font-semibold' : 
                                     isLoss ? 'text-red-600 font-semibold' : 

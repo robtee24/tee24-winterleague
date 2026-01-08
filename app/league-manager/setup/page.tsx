@@ -1110,7 +1110,7 @@ export default function LeagueSetupPage() {
                               cellContent = (
                                 <div className="flex flex-col items-center gap-1">
                                   <Link
-                                    href={`/league-manager/match?matchId=${match.id}&leagueId=${leagueId}`}
+                                    href={`/match?matchId=${match.id}&leagueId=${leagueId}`}
                                     className={`hover:underline ${
                                       isWin ? 'text-green-600 font-semibold' : 
                                       isLoss ? 'text-red-600 font-semibold' : 

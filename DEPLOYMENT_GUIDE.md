@@ -319,3 +319,4 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGci...
 
 Start adding players and courses through the admin portal!
 
+
