@@ -39,13 +39,22 @@ async function updateLouisvilleWinningsEligible() {
 
     let updatedCount = 0
     for (const { firstName, lastName } of eligiblePlayers) {
-      // Try to find player by first name and last name
-      const player = await prisma.player.findFirst({
+      // Try to find player by first name and last name (case-insensitive, partial match)
+      const allPlayers = await prisma.player.findMany({
         where: {
-          leagueId: louisvilleLeague.id,
-          firstName: firstName,
-          lastName: lastName
+          leagueId: louisvilleLeague.id
         }
+      })
+
+      // Find matching player using case-insensitive partial matching
+      const player = allPlayers.find(p => {
+        const pFirstName = p.firstName.toLowerCase()
+        const pLastName = (p.lastName || '').toLowerCase()
+        const searchFirstName = firstName.toLowerCase()
+        const searchLastName = lastName.toLowerCase()
+        
+        return pFirstName.startsWith(searchFirstName) && 
+               pLastName.startsWith(searchLastName)
       })
 
       if (player) {
@@ -53,10 +62,10 @@ async function updateLouisvilleWinningsEligible() {
           where: { id: player.id },
           data: { winningsEligible: true }
         })
-        console.log(`✓ Set ${firstName} ${lastName} to eligible`)
+        console.log(`✓ Set ${player.firstName} ${player.lastName} (matched ${firstName} ${lastName}) to eligible`)
         updatedCount++
       } else {
-        console.log(`✗ Could not find player: ${firstName} ${lastName}`)
+        console.log(`✗ Could not find player matching: ${firstName} ${lastName}`)
       }
     }
 
