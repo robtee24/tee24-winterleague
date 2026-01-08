@@ -474,7 +474,7 @@ export default function LeaderboardPage() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 border border-gray-300 rounded" style={{ background: 'linear-gradient(to bottom right, #fef3c7 0%, #fef3c7 50%, #dcfce7 50%, #dcfce7 100%)' }}></div>
-                    <span>Overall & Money Winner</span>
+                    <span>Weekly & Money Winner</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 bg-green-100 border border-gray-300 rounded"></div>
@@ -482,7 +482,7 @@ export default function LeaderboardPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 bg-yellow-100 border border-gray-300 rounded"></div>
-                    <span>Overall Winner</span>
+                    <span>Weekly Winner</span>
                   </div>
                 </div>
               </div>
@@ -567,16 +567,8 @@ export default function LeaderboardPage() {
                 ) : (
                   sortedPlayers.map((player, index) => {
                   const playerScores = getPlayerScores(player.id)
-                  // Highlight first place if they have the lowest total and have at least one completed week score
-                  const hasCompletedWeekScore = activeTab === 'weighted'
-                    ? Array.isArray(scores) && scores.some(s => {
-                        const weekNum = getWeekNumberForDisplay(s.week)
-                        return s.playerId === player.id && allPlayersSubmittedForWeek(weekNum)
-                      })
-                    : Array.isArray(scores) && scores.some(s => s.playerId === player.id && s.total !== null)
-                  const isFirstPlace = index === 0 && hasCompletedWeekScore
                   return (
-                    <tr key={player.id} className={isFirstPlace ? 'bg-yellow-50' : ''}>
+                    <tr key={player.id}>
                       <td className="border border-gray-300 px-4 py-2 text-center font-semibold">
                         {index + 1}
                       </td>
