@@ -280,6 +280,51 @@ export default function LeaderboardPage() {
     return playerScore !== null && playerScore === winningScore
   }
 
+  // Get the money winner for a specific week (lowest handicapped score among eligible players)
+  // Returns the player ID(s) if there's a winner, null if no eligible winner
+  const getMoneyWinnerForWeek = (weekNum: number): number[] => {
+    if (activeTab !== 'weighted') return []
+    if (!Array.isArray(scores) || !Array.isArray(players)) return []
+    
+    // First check if all players have submitted
+    if (!allPlayersSubmittedForWeek(weekNum)) return []
+    
+    const weekScores = scores.filter(s => {
+      const scoreWeekNum = getWeekNumberForDisplay(s.week)
+      return scoreWeekNum === weekNum && s.weightedScore !== null && s.weightedScore !== undefined
+    })
+    
+    if (weekScores.length === 0) return []
+    
+    // Get the most recent score per player (in case of duplicates)
+    const playerScoreMap = new Map<number, number>()
+    weekScores.forEach(score => {
+      const existing = playerScoreMap.get(score.playerId)
+      if (existing === undefined || score.weightedScore! < existing) {
+        playerScoreMap.set(score.playerId, score.weightedScore!)
+      }
+    })
+    
+    // Get all eligible players with their scores
+    const eligiblePlayerScores = Array.from(playerScoreMap.entries())
+      .filter(([playerId]) => {
+        const player = players.find(p => p.id === playerId)
+        return player && (player.winningsEligible ?? true)
+      })
+    
+    if (eligiblePlayerScores.length === 0) return []
+    
+    // Find the lowest score among eligible players
+    const lowestEligibleScore = Math.min(...eligiblePlayerScores.map(([_, score]) => score))
+    
+    // Find all eligible players with the lowest score
+    const winners = eligiblePlayerScores
+      .filter(([_, score]) => score === lowestEligibleScore)
+      .map(([playerId]) => playerId)
+    
+    return winners
+  }
+
   // Check if all players have submitted scores for a specific week
   const allPlayersSubmittedForWeek = (weekNum: number): boolean => {
     if (!Array.isArray(players) || !Array.isArray(scores) || players.length === 0) return false
@@ -519,13 +564,36 @@ export default function LeaderboardPage() {
                           const middleRowIndex = Math.floor((sortedPlayers.length - 1) / 2)
                           const isMiddleRow = index === middleRowIndex
                           
+                          // Check if player is the money winner
+                          const moneyWinners = getMoneyWinnerForWeek(weekNumber)
+                          const isMoneyWinner = moneyWinners.includes(player.id)
+                          
+                          // Determine cell styling
+                          let cellClassName = 'border border-gray-300 px-4 py-2 text-center'
+                          let cellStyle: { background?: string } = {}
+                          
+                          if (allSubmitted) {
+                            if (isWinner && isMoneyWinner) {
+                              // Both overall winner and money winner - diagonal split
+                              cellStyle = {
+                                background: 'linear-gradient(to bottom right, #fef3c7 0%, #fef3c7 50%, #dcfce7 50%, #dcfce7 100%)'
+                              }
+                            } else if (isMoneyWinner) {
+                              // Only money winner - light green
+                              cellClassName += ' bg-green-100'
+                            } else if (isWinner) {
+                              // Only overall winner - yellow/orange
+                              cellClassName += ' bg-yellow-100'
+                            }
+                          } else {
+                            cellClassName += ' bg-gray-300'
+                          }
+                          
                           return (
                             <td
                               key={weekNumber}
-                              className={`border border-gray-300 px-4 py-2 text-center ${
-                                !allSubmitted ? 'bg-gray-300' : 
-                                isWinner ? 'bg-orange-50' : ''
-                              }`}
+                              className={cellClassName}
+                              style={cellStyle}
                             >
                               {allSubmitted ? (
                                 score !== undefined ? score : '-'
