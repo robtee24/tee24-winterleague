@@ -52,8 +52,15 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       const unmatched = new Set(shuffledTeams)
       
       // Create exactly n/2 matches, using all n teams
-      for (let matchNum = 0; matchNum < targetMatchesPerWeek; matchNum++) {
+      // Use while loop to ensure we continue until all teams are matched
+      while (unmatched.size >= 2 && weekMatches.length < targetMatchesPerWeek) {
         const unmatchedArray = Array.from(unmatched)
+        
+        // Safety check
+        if (unmatchedArray.length < 2) {
+          console.error(`Week ${week + 1}: Not enough teams to form pair. Unmatched: ${unmatchedArray.length}, Matches created: ${weekMatches.length}/${targetMatchesPerWeek}`)
+          break
+        }
         
         // Find the best pair from unmatched teams
         let bestPair: [number, number] | null = null
@@ -80,7 +87,8 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
         }
         
         if (!bestPair) {
-          throw new Error(`Week ${week + 1}, Match ${matchNum + 1}: Failed to find pair. Unmatched: ${unmatchedArray.length} teams`)
+          console.error(`Week ${week + 1}: Failed to find pair. Unmatched: ${unmatchedArray.length}, Matches: ${weekMatches.length}/${targetMatchesPerWeek}`)
+          throw new Error(`Week ${week + 1}: Failed to find pair. Unmatched: ${unmatchedArray.length} teams. This should never happen for even numbers.`)
         }
         
         const [t1, t2] = bestPair
@@ -161,11 +169,21 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
   const finalTeamMatchCounts = new Map<number, number>()
   shuffledTeams.forEach(team => finalTeamMatchCounts.set(team, 0))
   
-  for (const weekMatches of weeklySchedule) {
+  // Track which teams appear in which weeks for debugging
+  const teamsByWeek = new Map<number, Set<number>>()
+  
+  for (let w = 0; w < weeklySchedule.length; w++) {
+    const weekMatches = weeklySchedule[w]
+    const teamsInWeek = new Set<number>()
+    
     for (const [t1, t2] of weekMatches) {
       finalTeamMatchCounts.set(t1, (finalTeamMatchCounts.get(t1) || 0) + 1)
       finalTeamMatchCounts.set(t2, (finalTeamMatchCounts.get(t2) || 0) + 1)
+      teamsInWeek.add(t1)
+      teamsInWeek.add(t2)
     }
+    
+    teamsByWeek.set(w + 1, teamsInWeek)
   }
   
   const counts = Array.from(finalTeamMatchCounts.values())
@@ -174,29 +192,53 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
   
   // CRITICAL: All teams must have exactly the same number of matches
   if (minCount !== maxCount) {
-    const unequal: Array<{ team: number; count: number }> = []
+    const unequal: Array<{ team: number; count: number; missingWeeks: number[] }> = []
     finalTeamMatchCounts.forEach((count, team) => {
       if (count !== maxCount) {
-        unequal.push({ team, count })
+        // Find which weeks this team is missing from
+        const missingWeeks: number[] = []
+        for (let w = 1; w <= numWeeks; w++) {
+          const teamsInWeek = teamsByWeek.get(w)
+          if (!teamsInWeek || !teamsInWeek.has(team)) {
+            missingWeeks.push(w)
+          }
+        }
+        unequal.push({ team, count, missingWeeks })
       }
     })
     
     console.error(`CRITICAL ERROR: Teams have unequal match counts:`)
     console.error(`Min: ${minCount}, Max: ${maxCount}`)
-    console.error(`Unequal teams:`, unequal)
+    console.error(`Expected: ${numWeeks} matches per team`)
+    console.error(`Unequal teams (${unequal.length}):`, unequal)
     
-    // Log each week's matches
+    // Log each week's matches in detail
     for (let w = 0; w < weeklySchedule.length; w++) {
       const weekMatches = weeklySchedule[w]
-      const teamsInWeek = new Set<number>()
-      for (const [t1, t2] of weekMatches) {
-        teamsInWeek.add(t1)
-        teamsInWeek.add(t2)
+      const teamsInWeek = teamsByWeek.get(w + 1) || new Set()
+      const missingTeams = shuffledTeams.filter(t => !teamsInWeek.has(t))
+      
+      console.error(`Week ${w + 1}: ${weekMatches.length} matches, ${teamsInWeek.size} teams matched`)
+      if (missingTeams.length > 0) {
+        console.error(`  ⚠️  Missing teams in Week ${w + 1}: ${missingTeams.join(', ')}`)
       }
-      console.error(`Week ${w + 1}: ${weekMatches.length} matches, ${teamsInWeek.size} teams`)
     }
     
-    throw new Error(`Schedule generation FAILED: Teams have unequal match counts. Min: ${minCount}, Max: ${maxCount}. ${unequal.length} teams have incorrect counts.`)
+    // Show which teams have which counts
+    const teamsByCount = new Map<number, number[]>()
+    finalTeamMatchCounts.forEach((count, team) => {
+      if (!teamsByCount.has(count)) {
+        teamsByCount.set(count, [])
+      }
+      teamsByCount.get(count)!.push(team)
+    })
+    
+    console.error(`Teams grouped by match count:`)
+    teamsByCount.forEach((teams, count) => {
+      console.error(`  ${count} matches: ${teams.length} teams (${teams.join(', ')})`)
+    })
+    
+    throw new Error(`Schedule generation FAILED: Teams have unequal match counts. Min: ${minCount}, Max: ${maxCount}. ${unequal.length} teams have incorrect counts. Expected ${numWeeks} matches per team.`)
   }
   
   // For even numbers, verify all teams have exactly numWeeks matches
