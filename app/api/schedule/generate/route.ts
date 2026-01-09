@@ -36,6 +36,10 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
   const teamMatchCounts = new Map<number, number>()
   shuffledTeams.forEach(team => teamMatchCounts.set(team, 0))
   
+  // Track bye weeks per team (for odd numbers - each team should get exactly one bye)
+  const teamByeCounts = new Map<number, number>()
+  shuffledTeams.forEach(team => teamByeCounts.set(team, 0))
+  
   // For even number of teams, we need exactly n/2 matches per week
   // For odd number of teams, we need (n-1)/2 matches per week (one bye)
   const targetMatchesPerWeek = Math.floor(n / 2)
@@ -151,13 +155,18 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       }
     } else {
       // ODD NUMBERS: One team gets a bye each week
+      // CRITICAL: Each team must get exactly ONE bye week over numWeeks
+      // teamByeCounts is defined outside the loop to persist across weeks
       const unmatched = new Set(shuffledTeams)
       
-      // Create (n-1)/2 matches, leaving one team with a bye
+      // Create (n-1)/2 matches, leaving exactly one team with a bye
+      // We need exactly targetMatchesPerWeek matches (which is (n-1)/2 for odd numbers)
       for (let matchNum = 0; matchNum < targetMatchesPerWeek; matchNum++) {
         const unmatchedArray = Array.from(unmatched)
         
-        if (unmatchedArray.length < 2) break
+        if (unmatchedArray.length < 2) {
+          throw new Error(`Week ${week + 1}, Match ${matchNum + 1}: Not enough teams. Unmatched: ${unmatchedArray.length}`)
+        }
         
         let bestPair: [number, number] | null = null
         let bestPriority = Infinity
@@ -171,8 +180,11 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
             const pairCount = pairCounts.get(pairKey) || 0
             const t1Count = teamMatchCounts.get(t1) || 0
             const t2Count = teamMatchCounts.get(t2) || 0
+            const t1ByeCount = teamByeCounts.get(t1) || 0
+            const t2ByeCount = teamByeCounts.get(t2) || 0
             
-            const priority = pairCount * 10000 + (t1Count + t2Count) * 100 + Math.random() * 10
+            // Priority: minimize duplicates, balance appearances, and prioritize teams with fewer byes
+            const priority = pairCount * 10000 + (t1Count + t2Count) * 100 + (t1ByeCount + t2ByeCount) * 50 + Math.random() * 10
             
             if (priority < bestPriority) {
               bestPriority = priority
@@ -181,14 +193,39 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
           }
         }
         
-        if (bestPair) {
-          const [t1, t2] = bestPair
-          weekMatches.push([t1, t2])
-          unmatched.delete(t1)
-          unmatched.delete(t2)
-          usedThisWeek.add(t1)
-          usedThisWeek.add(t2)
+        if (!bestPair) {
+          throw new Error(`Week ${week + 1}, Match ${matchNum + 1}: Failed to find pair. Unmatched: ${unmatchedArray.length} teams`)
         }
+        
+        const [t1, t2] = bestPair
+        weekMatches.push([t1, t2])
+        unmatched.delete(t1)
+        unmatched.delete(t2)
+        usedThisWeek.add(t1)
+        usedThisWeek.add(t2)
+      }
+      
+      // After creating matches, exactly one team should remain unmatched (the bye team)
+      if (unmatched.size !== 1) {
+        throw new Error(`Week ${week + 1}: Expected exactly 1 team with bye, but ${unmatched.size} teams remain unmatched: ${Array.from(unmatched).join(', ')}`)
+      }
+      
+      // Assign the bye to the remaining team
+      const byeTeam = Array.from(unmatched)[0]
+      const currentByeCount = teamByeCounts.get(byeTeam) || 0
+      teamByeCounts.set(byeTeam, currentByeCount + 1)
+      usedThisWeek.add(byeTeam) // Mark as "used" (has a bye)
+      
+      console.log(`Week ${week + 1}: Team ${byeTeam} has a bye (bye count: ${currentByeCount + 1})`)
+      
+      // Verify we have the correct number of matches
+      if (weekMatches.length !== targetMatchesPerWeek) {
+        throw new Error(`Week ${week + 1}: Expected ${targetMatchesPerWeek} matches, got ${weekMatches.length}`)
+      }
+      
+      // Verify all teams are accounted for (either in a match or with a bye)
+      if (usedThisWeek.size !== n) {
+        throw new Error(`Week ${week + 1}: Only ${usedThisWeek.size}/${n} teams accounted for`)
       }
     }
     
@@ -226,6 +263,8 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       teamMatchCounts.set(t1, (teamMatchCounts.get(t1) || 0) + 1)
       teamMatchCounts.set(t2, (teamMatchCounts.get(t2) || 0) + 1)
     }
+    
+    // For odd numbers, the bye team's bye count was already updated above
     
     // CRITICAL: Final check before adding to schedule
     // For even numbers, MUST have exactly targetMatchesPerWeek matches with all n teams
@@ -295,10 +334,14 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
   const maxCount = Math.max(...counts)
   
   // CRITICAL: All teams must have exactly the same number of matches
-  if (minCount !== maxCount) {
+  // For even numbers: exactly numWeeks matches (one per week)
+  // For odd numbers: exactly (numWeeks - 1) matches (one bye week)
+  const expectedMatches = n % 2 === 0 ? numWeeks : (numWeeks - 1)
+  
+  if (minCount !== maxCount || maxCount !== expectedMatches) {
     const unequal: Array<{ team: number; count: number; missingWeeks: number[] }> = []
     finalTeamMatchCounts.forEach((count, team) => {
-      if (count !== maxCount) {
+      if (count !== expectedMatches) {
         // Find which weeks this team is missing from
         const missingWeeks: number[] = []
         for (let w = 1; w <= numWeeks; w++) {
@@ -313,8 +356,30 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
     
     console.error(`CRITICAL ERROR: Teams have unequal match counts:`)
     console.error(`Min: ${minCount}, Max: ${maxCount}`)
-    console.error(`Expected: ${numWeeks} matches per team`)
+    console.error(`Expected: ${expectedMatches} matches per team (${n % 2 === 0 ? `${numWeeks} weeks, no byes` : `${numWeeks} weeks - 1 bye`})`)
     console.error(`Unequal teams (${unequal.length}):`, unequal)
+    
+    // For odd numbers, also check bye distribution
+    if (n % 2 !== 0) {
+      const byeDistribution = new Map<number, number[]>()
+      teamByeCounts.forEach((byeCount, team) => {
+        if (!byeDistribution.has(byeCount)) {
+          byeDistribution.set(byeCount, [])
+        }
+        byeDistribution.get(byeCount)!.push(team)
+      })
+      console.error(`Bye distribution:`, Object.fromEntries(byeDistribution))
+      
+      const teamsWithWrongByes: number[] = []
+      teamByeCounts.forEach((byeCount, team) => {
+        if (byeCount !== 1) {
+          teamsWithWrongByes.push(team)
+        }
+      })
+      if (teamsWithWrongByes.length > 0) {
+        console.error(`Teams with incorrect bye counts (should be 1):`, teamsWithWrongByes)
+      }
+    }
     
     // Log each week's matches in detail
     for (let w = 0; w < weeklySchedule.length; w++) {
@@ -342,15 +407,24 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       console.error(`  ${count} matches: ${teams.length} teams (${teams.join(', ')})`)
     })
     
-    throw new Error(`Schedule generation FAILED: Teams have unequal match counts. Min: ${minCount}, Max: ${maxCount}. ${unequal.length} teams have incorrect counts. Expected ${numWeeks} matches per team.`)
+    throw new Error(`Schedule generation FAILED: Teams have unequal match counts. Min: ${minCount}, Max: ${maxCount}. ${unequal.length} teams have incorrect counts. Expected ${expectedMatches} matches per team (${n % 2 === 0 ? `${numWeeks} weeks, no byes` : `${numWeeks} weeks - 1 bye`}).`)
   }
   
-  // For even numbers, verify all teams have exactly numWeeks matches
-  if (n % 2 === 0 && maxCount !== numWeeks) {
-    throw new Error(`Schedule generation FAILED: For even numbers, all teams should have exactly ${numWeeks} matches (one per week), but found ${maxCount} matches per team.`)
+  // For odd numbers, verify each team has exactly one bye
+  if (n % 2 !== 0) {
+    const teamsWithWrongByes: number[] = []
+    teamByeCounts.forEach((byeCount, team) => {
+      if (byeCount !== 1) {
+        teamsWithWrongByes.push(team)
+      }
+    })
+    
+    if (teamsWithWrongByes.length > 0) {
+      throw new Error(`Schedule generation FAILED: ${teamsWithWrongByes.length} teams have incorrect bye counts. Each team should have exactly 1 bye. Teams with wrong byes: ${teamsWithWrongByes.join(', ')}`)
+    }
   }
   
-  console.log(`✅ Schedule verified: All ${n} teams have exactly ${maxCount} matches over ${numWeeks} weeks`)
+  console.log(`✅ Schedule verified: All ${n} teams have exactly ${expectedMatches} matches over ${numWeeks} weeks${n % 2 !== 0 ? ' (each team has 1 bye)' : ''}`)
   
   return weeklySchedule
 }
@@ -704,11 +778,13 @@ export async function POST(request: Request) {
     const dbMinMatches = Math.min(...dbMatchCounts)
     const dbMaxMatches = Math.max(...dbMatchCounts)
 
-    // For Louisville: 10 weeks of regular season, each team should have exactly 10 matches
-    // If that's not possible, all teams should have 9 matches (but all teams must be equal)
-    const expectedMatchesPerTeam = weeks.length // Should be 10 for Louisville
+    // For Louisville: 10 weeks of regular season
+    // Even number of teams: each team should have exactly 10 matches (one per week)
+    // Odd number of teams: each team should have exactly 9 matches (one bye week)
+    const expectedMatchesPerTeam = teams.length % 2 === 0 ? weeks.length : (weeks.length - 1)
     
-    if (dbMinMatches !== dbMaxMatches && teams.length % 2 === 0) {
+    // Verify all teams have equal matches (for both even and odd numbers)
+    if (dbMinMatches !== dbMaxMatches) {
       console.error(`ERROR: Database verification failed - teams have unequal matches in database. Min: ${dbMinMatches}, Max: ${dbMaxMatches}, Expected: ${expectedMatchesPerTeam}`)
       const unequalTeams: Array<{ teamId: number; teamNumber: number; matches: number }> = []
       dbTeamMatchCounts.forEach((count, teamId) => {
@@ -719,7 +795,7 @@ export async function POST(request: Request) {
       })
       
       return NextResponse.json({ 
-        error: `Database verification failed: Teams have unequal match counts after creation. Expected ${expectedMatchesPerTeam} matches per team (one per week), but found min: ${dbMinMatches}, max: ${dbMaxMatches}. ${unequalTeams.length} teams have incorrect counts.`,
+        error: `Database verification failed: Teams have unequal match counts after creation. Expected ${expectedMatchesPerTeam} matches per team${teams.length % 2 === 0 ? ' (one per week)' : ` (${weeks.length} weeks - 1 bye)`}, but found min: ${dbMinMatches}, max: ${dbMaxMatches}. ${unequalTeams.length} teams have incorrect counts.`,
         details: {
           teams: teams.length,
           weeks: weeks.length,
@@ -732,11 +808,13 @@ export async function POST(request: Request) {
       }, { status: 500 })
     }
     
-    // Final check: ensure all teams have exactly expectedMatchesPerTeam matches (should be 10 for Louisville)
+    // Final check: ensure all teams have exactly expectedMatchesPerTeam matches
+    // For even numbers: weeks.length matches (one per week)
+    // For odd numbers: (weeks.length - 1) matches (one bye week)
     if (dbMaxMatches !== expectedMatchesPerTeam) {
-      console.error(`ERROR: Teams have ${dbMaxMatches} matches, but expected ${expectedMatchesPerTeam} matches per team (one per week for ${weeks.length} weeks)`)
+      console.error(`ERROR: Teams have ${dbMaxMatches} matches, but expected ${expectedMatchesPerTeam} matches per team${teams.length % 2 === 0 ? ` (one per week for ${weeks.length} weeks)` : ` (${weeks.length} weeks - 1 bye)`}`)
       return NextResponse.json({ 
-        error: `Schedule generation failed: Each team should have exactly ${expectedMatchesPerTeam} matches (one per week for ${weeks.length} weeks), but found ${dbMaxMatches} matches per team.`,
+        error: `Schedule generation failed: Each team should have exactly ${expectedMatchesPerTeam} matches${teams.length % 2 === 0 ? ` (one per week for ${weeks.length} weeks)` : ` (${weeks.length} weeks - 1 bye)`}, but found ${dbMaxMatches} matches per team.`,
         details: {
           teams: teams.length,
           weeks: weeks.length,
