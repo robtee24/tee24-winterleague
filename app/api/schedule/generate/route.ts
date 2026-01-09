@@ -93,18 +93,18 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
     ): boolean => {
       // Base case: found perfect matching
       if (matches.length >= targetMatchesPerWeek) {
-        return used.size === n // Must use all teams for even numbers
+        // For even numbers, must use all teams
+        if (n % 2 === 0) {
+          return used.size === n
+        }
+        return true
       }
       
       // Pruning: check if we can still complete the matching
       const remainingTeams = n - used.size
       const neededMatches = targetMatchesPerWeek - matches.length
       
-      // For even numbers, we need exactly n/2 matches, so remainingTeams must be exactly neededMatches * 2
-      if (n % 2 === 0 && remainingTeams !== neededMatches * 2) {
-        return false
-      }
-      
+      // Simple check: need enough teams to form the remaining matches
       if (remainingTeams < neededMatches * 2) {
         return false
       }
@@ -138,20 +138,15 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       return false
     }
     
-    // Attempt to find perfect matching
-    const success = findPerfectMatching(allPairs, usedThisWeek, weekMatches)
+    // For even numbers, use greedy approach directly (guaranteed to work)
+    // For odd numbers, try backtracking first, then fall back to greedy
+    let success = false
     
-    if (!success) {
-      // If backtracking failed, use a simpler but guaranteed approach for even numbers
-      // Reset and try a greedy matching that prioritizes unused teams
-      weekMatches.length = 0
-      usedThisWeek.clear()
-      
-      // For even numbers, we can always find a perfect matching
-      // Use greedy approach that ensures we complete the matching
+    if (n % 2 === 0) {
+      // Even numbers: use greedy matching (guaranteed to complete)
       const unmatched = new Set(shuffledTeams)
       
-      // Continue until all teams are matched (even numbers guarantee this works)
+      // Continue until all teams are matched
       while (unmatched.size >= 2 && weekMatches.length < targetMatchesPerWeek) {
         // Find the best pair from unmatched teams
         let bestPair: [number, number] | null = null
@@ -186,18 +181,64 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
           unmatched.delete(t2)
           usedThisWeek.add(t1)
           usedThisWeek.add(t2)
+          success = true
         } else {
-          // This should never happen for even numbers - all pairs exhausted
-          console.error(`Week ${week + 1}: Greedy matching failed. Unmatched: ${unmatched.size}, Matches: ${weekMatches.length}`)
+          // This should never happen for even numbers
+          console.error(`Week ${week + 1}: Greedy matching failed to find a pair. Unmatched: ${unmatched.size}, Matches: ${weekMatches.length}`)
           break
         }
       }
       
-      // For even numbers, verify we matched all teams
-      if (n % 2 === 0 && unmatched.size > 0) {
+      // Verify all teams are matched
+      if (unmatched.size > 0) {
         console.error(`Week ${week + 1}: Greedy matching incomplete. ${unmatched.size} teams unmatched: ${Array.from(unmatched).join(', ')}`)
-        // This is a critical error - we should have matched all teams
         throw new Error(`Failed to complete matching for week ${week + 1}. ${unmatched.size} teams remain unmatched.`)
+      }
+    } else {
+      // Odd numbers: try backtracking first
+      success = findPerfectMatching(allPairs, usedThisWeek, weekMatches)
+      
+      // If backtracking fails, use greedy fallback
+      if (!success) {
+        weekMatches.length = 0
+        usedThisWeek.clear()
+        
+        const unmatched = new Set(shuffledTeams)
+        while (unmatched.size >= 2 && weekMatches.length < targetMatchesPerWeek) {
+          // Same greedy logic as above
+          let bestPair: [number, number] | null = null
+          let bestPriority = Infinity
+          
+          const unmatchedArray = Array.from(unmatched)
+          for (let i = 0; i < unmatchedArray.length; i++) {
+            for (let j = i + 1; j < unmatchedArray.length; j++) {
+              const t1 = unmatchedArray[i]
+              const t2 = unmatchedArray[j]
+              const pairKey = getPairKey(t1, t2)
+              const pairCount = pairCounts.get(pairKey) || 0
+              const t1Count = teamMatchCounts.get(t1) || 0
+              const t2Count = teamMatchCounts.get(t2) || 0
+              const priority = pairCount * 10000 + (t1Count + t2Count) * 100 + Math.random() * 10
+              
+              if (priority < bestPriority) {
+                bestPriority = priority
+                bestPair = [t1, t2]
+              }
+            }
+          }
+          
+          if (bestPair) {
+            const [t1, t2] = bestPair
+            weekMatches.push([t1, t2])
+            unmatched.delete(t1)
+            unmatched.delete(t2)
+            usedThisWeek.add(t1)
+            usedThisWeek.add(t2)
+            success = true
+          } else {
+            break
+          }
+        }
       }
     }
     
