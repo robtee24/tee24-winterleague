@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 
 /**
  * Generate a round-robin schedule ensuring each team plays exactly once per week
- * Uses a greedy matching algorithm with backtracking to ensure all teams are matched
+ * For even numbers of teams, guarantees perfect matching every week
  * Returns matches organized by week
  */
 function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Array<[number, number]>> {
@@ -34,13 +34,13 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
   const teamMatchCounts = new Map<number, number>()
   shuffledTeams.forEach(team => teamMatchCounts.set(team, 0))
   
+  // For even number of teams, we need exactly n/2 matches per week
+  const targetMatchesPerWeek = Math.floor(n / 2)
+  
   // Generate schedule for each week
   for (let week = 0; week < numWeeks; week++) {
-    // For even number of teams, we need n/2 matches per week
-    // For odd number, we need (n-1)/2 matches per week (one team gets a bye)
-    const targetMatchesPerWeek = Math.floor(n / 2)
-    
     // Create a list of all possible pairs with their priority scores
+    // Priority ensures we minimize duplicates and balance appearances
     const allPairs: Array<{
       pair: [number, number]
       pairKey: string
@@ -79,32 +79,39 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
     // Sort pairs by priority (lower is better)
     allPairs.sort((a, b) => a.priority - b.priority)
     
-    // Use backtracking to find a perfect matching for this week
+    // For even numbers, we MUST find a perfect matching (n/2 matches using all n teams)
+    // Use iterative backtracking with better pruning
+    const weekMatches: Array<[number, number]> = []
+    const usedThisWeek = new Set<number>()
+    
     const findPerfectMatching = (
       pairs: typeof allPairs,
       used: Set<number>,
       matches: Array<[number, number]>,
-      startIndex: number = 0
+      startIndex: number = 0,
+      depth: number = 0
     ): boolean => {
+      // Base case: found perfect matching
       if (matches.length >= targetMatchesPerWeek) {
-        return true // Found perfect matching
+        return used.size === n // Must use all teams for even numbers
       }
       
-      // If not enough teams left, impossible
+      // Pruning: check if we can still complete the matching
       const remainingTeams = n - used.size
-      if (remainingTeams < 2) {
-        return false
-      }
-      
-      // If we need more matches than possible pairs, impossible
       const neededMatches = targetMatchesPerWeek - matches.length
-      if (neededMatches * 2 > remainingTeams) {
+      
+      // For even numbers, we need exactly n/2 matches, so remainingTeams must be exactly neededMatches * 2
+      if (n % 2 === 0 && remainingTeams !== neededMatches * 2) {
         return false
       }
       
-      // Try each remaining pair in order
+      if (remainingTeams < neededMatches * 2) {
+        return false
+      }
+      
+      // Try pairs in priority order, but skip already used teams
       for (let i = startIndex; i < pairs.length; i++) {
-        const { pair, pairKey } = pairs[i]
+        const { pair } = pairs[i]
         const [t1, t2] = pair
         
         // Skip if either team is already used
@@ -118,7 +125,7 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
         used.add(t2)
         
         // Recursively try to complete the matching
-        if (findPerfectMatching(pairs, used, matches, i + 1)) {
+        if (findPerfectMatching(pairs, used, matches, i + 1, depth + 1)) {
           return true
         }
         
@@ -131,28 +138,86 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       return false
     }
     
-    // Find perfect matching for this week
-    const weekMatches: Array<[number, number]> = []
-    const usedThisWeek = new Set<number>()
+    // Attempt to find perfect matching
+    const success = findPerfectMatching(allPairs, usedThisWeek, weekMatches)
     
-    if (!findPerfectMatching(allPairs, usedThisWeek, weekMatches)) {
-      // Fallback: greedy approach if backtracking fails
-      console.warn(`Week ${week + 1}: Backtracking failed, using greedy approach`)
-      for (const { pair, pairKey } of allPairs) {
-        const [t1, t2] = pair
-        if (!usedThisWeek.has(t1) && !usedThisWeek.has(t2) && weekMatches.length < targetMatchesPerWeek) {
+    if (!success) {
+      // If backtracking failed, use a simpler but guaranteed approach for even numbers
+      // Reset and try a greedy matching that prioritizes unused teams
+      weekMatches.length = 0
+      usedThisWeek.clear()
+      
+      // For even numbers, we can always find a perfect matching
+      // Use greedy approach that ensures we complete the matching
+      const unmatched = new Set(shuffledTeams)
+      
+      // Continue until all teams are matched (even numbers guarantee this works)
+      while (unmatched.size >= 2 && weekMatches.length < targetMatchesPerWeek) {
+        // Find the best pair from unmatched teams
+        let bestPair: [number, number] | null = null
+        let bestPriority = Infinity
+        
+        const unmatchedArray = Array.from(unmatched)
+        
+        for (let i = 0; i < unmatchedArray.length; i++) {
+          for (let j = i + 1; j < unmatchedArray.length; j++) {
+            const t1 = unmatchedArray[i]
+            const t2 = unmatchedArray[j]
+            
+            const pairKey = getPairKey(t1, t2)
+            const pairCount = pairCounts.get(pairKey) || 0
+            const t1Count = teamMatchCounts.get(t1) || 0
+            const t2Count = teamMatchCounts.get(t2) || 0
+            
+            // Priority: minimize duplicates and balance appearances
+            const priority = pairCount * 10000 + (t1Count + t2Count) * 100 + Math.random() * 10
+            
+            if (priority < bestPriority) {
+              bestPriority = priority
+              bestPair = [t1, t2]
+            }
+          }
+        }
+        
+        if (bestPair) {
+          const [t1, t2] = bestPair
           weekMatches.push([t1, t2])
+          unmatched.delete(t1)
+          unmatched.delete(t2)
           usedThisWeek.add(t1)
           usedThisWeek.add(t2)
+        } else {
+          // This should never happen for even numbers - all pairs exhausted
+          console.error(`Week ${week + 1}: Greedy matching failed. Unmatched: ${unmatched.size}, Matches: ${weekMatches.length}`)
+          break
         }
+      }
+      
+      // For even numbers, verify we matched all teams
+      if (n % 2 === 0 && unmatched.size > 0) {
+        console.error(`Week ${week + 1}: Greedy matching incomplete. ${unmatched.size} teams unmatched: ${Array.from(unmatched).join(', ')}`)
+        // This is a critical error - we should have matched all teams
+        throw new Error(`Failed to complete matching for week ${week + 1}. ${unmatched.size} teams remain unmatched.`)
       }
     }
     
-    // Verify we have the correct number of matches
-    if (weekMatches.length < targetMatchesPerWeek && n % 2 === 0) {
-      console.error(`Week ${week + 1}: Failed to generate complete schedule. Generated ${weekMatches.length}/${targetMatchesPerWeek} matches`)
-      const unmatched = shuffledTeams.filter(t => !usedThisWeek.has(t))
-      console.error(`Unmatched teams: ${unmatched.join(', ')}`)
+    // Verify we have a complete matching for even numbers
+    if (n % 2 === 0) {
+      if (weekMatches.length !== targetMatchesPerWeek) {
+        console.error(`Week ${week + 1}: Failed to generate complete schedule. Generated ${weekMatches.length}/${targetMatchesPerWeek} matches for ${n} teams`)
+        const unmatched = shuffledTeams.filter(t => !usedThisWeek.has(t))
+        console.error(`Unmatched teams (${unmatched.length}): ${unmatched.join(', ')}`)
+        
+        // If we still don't have a complete matching, throw an error
+        // This should never happen for even numbers with proper algorithm
+        throw new Error(`Failed to generate perfect matching for week ${week + 1}. This indicates a bug in the algorithm.`)
+      }
+      
+      // Verify all teams are used
+      if (usedThisWeek.size !== n) {
+        console.error(`Week ${week + 1}: Not all teams matched. Expected ${n}, got ${usedThisWeek.size}`)
+        throw new Error(`Incomplete matching for week ${week + 1}`)
+      }
     }
     
     // Update counts
@@ -258,11 +323,18 @@ export async function POST(request: Request) {
       })
     }
 
-    // Verify that all teams have equal number of matches
+    // Verify that all teams have equal number of matches (critical for even numbers)
     const teamMatchCounts = new Map<number, number>()
     matchesToCreate.forEach(match => {
       teamMatchCounts.set(match.team1Id, (teamMatchCounts.get(match.team1Id) || 0) + 1)
       teamMatchCounts.set(match.team2Id, (teamMatchCounts.get(match.team2Id) || 0) + 1)
+    })
+
+    // Verify all teams exist in the map
+    teams.forEach(team => {
+      if (!teamMatchCounts.has(team.id)) {
+        teamMatchCounts.set(team.id, 0)
+      }
     })
 
     const matchCounts = Array.from(teamMatchCounts.values())
@@ -270,12 +342,41 @@ export async function POST(request: Request) {
     const maxMatches = Math.max(...matchCounts)
     
     if (minMatches !== maxMatches) {
-      console.warn(`Warning: Teams have unequal match counts. Min: ${minMatches}, Max: ${maxMatches}`)
+      console.error(`ERROR: Teams have unequal match counts. Min: ${minMatches}, Max: ${maxMatches}`)
       teamMatchCounts.forEach((count, teamId) => {
         if (count !== maxMatches) {
-          console.warn(`Team ${teamId} has ${count} matches (expected ${maxMatches})`)
+          console.error(`Team ${teamId} has ${count} matches (expected ${maxMatches})`)
         }
       })
+      
+      // For even numbers, this should never happen - throw error
+      if (teams.length % 2 === 0) {
+        return NextResponse.json({ 
+          error: `Schedule generation failed: Teams have unequal match counts. This should not happen with even number of teams. Min: ${minMatches}, Max: ${maxMatches}`,
+          details: {
+            teams: teams.length,
+            matches: matchesToCreate.length,
+            weeks: weeks.length,
+            teamMatchCounts: Object.fromEntries(teamMatchCounts)
+          }
+        }, { status: 500 })
+      }
+    }
+
+    // For even numbers, verify every team plays every week
+    if (teams.length % 2 === 0) {
+      const expectedMatchesPerTeam = weeks.length
+      if (maxMatches !== expectedMatchesPerTeam) {
+        return NextResponse.json({ 
+          error: `Schedule generation failed: Each team should have ${expectedMatchesPerTeam} matches (one per week), but found ${maxMatches}`,
+          details: {
+            teams: teams.length,
+            weeks: weeks.length,
+            expectedMatchesPerTeam,
+            actualMatchesPerTeam: maxMatches
+          }
+        }, { status: 500 })
+      }
     }
 
     console.log(`Schedule generation complete: ${matchesToCreate.length} matches across ${weeks.length} weeks. All teams have ${maxMatches} matches.`)
