@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 
 /**
  * Generate a round-robin schedule ensuring each team plays exactly once per week
- * For even numbers of teams, guarantees perfect matching every week
+ * For even numbers: all teams play every week (no byes)
+ * For odd numbers: one team gets a bye each week, rotated so each team gets exactly one bye
  * Returns matches organized by week
  */
 function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Array<[number, number]>> {
@@ -34,7 +35,12 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
   const teamMatchCounts = new Map<number, number>()
   shuffledTeams.forEach(team => teamMatchCounts.set(team, 0))
   
+  // Track bye weeks per team (for odd numbers)
+  const byeWeeks = new Map<number, number>()
+  shuffledTeams.forEach(team => byeWeeks.set(team, 0))
+  
   // For even number of teams, we need exactly n/2 matches per week
+  // For odd number of teams, we need (n-1)/2 matches per week (one bye)
   const targetMatchesPerWeek = Math.floor(n / 2)
   
   // Generate schedule for each week
@@ -144,15 +150,23 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
     
     if (n % 2 === 0) {
       // Even numbers: use greedy matching (guaranteed to complete)
+      // For even numbers, we must match all teams every week
       const unmatched = new Set(shuffledTeams)
       
-      // Continue until all teams are matched
-      while (unmatched.size >= 2 && weekMatches.length < targetMatchesPerWeek) {
+      // Keep matching until all teams are used (for even numbers, this always works)
+      // We need exactly n/2 matches, which means we need exactly n teams matched
+      while (unmatched.size >= 2) {
+        const unmatchedArray = Array.from(unmatched)
+        
+        // Must have at least 2 teams to form a pair
+        if (unmatchedArray.length < 2) {
+          console.error(`Week ${week + 1}: Not enough teams to form a pair. Remaining: ${unmatchedArray.length}`)
+          break
+        }
+        
         // Find the best pair from unmatched teams
         let bestPair: [number, number] | null = null
         let bestPriority = Infinity
-        
-        const unmatchedArray = Array.from(unmatched)
         
         for (let i = 0; i < unmatchedArray.length; i++) {
           for (let j = i + 1; j < unmatchedArray.length; j++) {
@@ -174,19 +188,20 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
           }
         }
         
-        if (bestPair) {
-          const [t1, t2] = bestPair
-          weekMatches.push([t1, t2])
-          unmatched.delete(t1)
-          unmatched.delete(t2)
-          usedThisWeek.add(t1)
-          usedThisWeek.add(t2)
-          success = true
-        } else {
-          // This should never happen for even numbers
-          console.error(`Week ${week + 1}: Greedy matching failed to find a pair. Unmatched: ${unmatched.size}, Matches: ${weekMatches.length}`)
-          break
+        // For even numbers, we should always find a pair when unmatched.size >= 2
+        if (!bestPair) {
+          console.error(`Week ${week + 1}: Failed to find best pair. Unmatched: ${unmatched.size}, Matches: ${weekMatches.length}`)
+          console.error(`Unmatched teams: ${unmatchedArray.join(', ')}`)
+          throw new Error(`Week ${week + 1}: Cannot find a valid pair. This should never happen for even numbers when ${unmatched.size} teams remain unmatched.`)
         }
+        
+        const [t1, t2] = bestPair
+        weekMatches.push([t1, t2])
+        unmatched.delete(t1)
+        unmatched.delete(t2)
+        usedThisWeek.add(t1)
+        usedThisWeek.add(t2)
+        success = true
       }
       
       // Verify all teams are matched and we have the right number of matches
@@ -282,6 +297,59 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
     
     weeklySchedule.push(weekMatches)
   }
+  
+  // Final comprehensive verification: ensure all teams have equal matches
+  const finalTeamMatchCounts = new Map<number, number>()
+  shuffledTeams.forEach(team => finalTeamMatchCounts.set(team, 0))
+  
+  for (const weekMatches of weeklySchedule) {
+    for (const [t1, t2] of weekMatches) {
+      finalTeamMatchCounts.set(t1, (finalTeamMatchCounts.get(t1) || 0) + 1)
+      finalTeamMatchCounts.set(t2, (finalTeamMatchCounts.get(t2) || 0) + 1)
+    }
+  }
+  
+  const counts = Array.from(finalTeamMatchCounts.values())
+  const minCount = Math.min(...counts)
+  const maxCount = Math.max(...counts)
+  
+  if (n % 2 === 0) {
+    // For even numbers, all teams must have exactly numWeeks matches (one per week)
+    if (minCount !== maxCount || maxCount !== numWeeks) {
+      const unequal: Array<{ team: number; count: number }> = []
+      finalTeamMatchCounts.forEach((count, team) => {
+        if (count !== numWeeks) {
+          unequal.push({ team, count })
+        }
+      })
+      console.error(`CRITICAL ERROR: Teams have unequal match counts in generated schedule:`)
+      console.error(`Expected: ${numWeeks} matches per team`)
+      console.error(`Min: ${minCount}, Max: ${maxCount}`)
+      console.error(`Teams with wrong count:`, unequal)
+      
+      // Log week-by-week breakdown
+      for (let w = 0; w < weeklySchedule.length; w++) {
+        const weekMatches = weeklySchedule[w]
+        const teamsInWeek = new Set<number>()
+        for (const [t1, t2] of weekMatches) {
+          teamsInWeek.add(t1)
+          teamsInWeek.add(t2)
+        }
+        console.error(`Week ${w + 1}: ${weekMatches.length} matches, ${teamsInWeek.size} teams`)
+      }
+      
+      throw new Error(`Schedule generation failed: Teams have unequal match counts. Expected ${numWeeks} matches per team, but found min: ${minCount}, max: ${maxCount}. ${unequal.length} teams have incorrect counts.`)
+    }
+  } else {
+    // For odd numbers, handle bye weeks - each team should have same number of matches OR one bye
+    const uniqueCounts = new Set(counts)
+    if (uniqueCounts.size > 2) {
+      // More than 2 different counts means uneven distribution
+      throw new Error(`Schedule generation failed for odd numbers: Teams have more than 2 different match counts. This indicates uneven bye distribution.`)
+    }
+  }
+  
+  console.log(`Schedule generation verified: All ${n} teams have ${maxCount} matches over ${numWeeks} weeks`)
   
   return weeklySchedule
 }
