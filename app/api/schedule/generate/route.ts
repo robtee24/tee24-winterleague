@@ -392,13 +392,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No weeks found for schedule generation' }, { status: 400 })
     }
 
-    // Delete existing matches for weeks 1-10
+    // Delete existing matches for weeks 1-10 ONLY
+    // This ensures we don't count matches from week 11 or championship
     const weekIds = weeks.map(w => w.id)
-    await prisma.match.deleteMany({
+    const deleteResult = await prisma.match.deleteMany({
       where: {
         weekId: { in: weekIds }
       }
     })
+    console.log(`Deleted ${deleteResult.count} existing matches for weeks 1-10`)
+    
+    // Verify no matches remain for weeks 1-10
+    const remainingMatches = await prisma.match.count({
+      where: {
+        weekId: { in: weekIds }
+      }
+    })
+    if (remainingMatches > 0) {
+      console.error(`WARNING: ${remainingMatches} matches still exist for weeks 1-10 after deletion`)
+    }
 
     // Generate schedule organized by week
     const teamIds = teams.map(t => t.id)
@@ -616,9 +628,11 @@ export async function POST(request: Request) {
     }
 
     // Final verification: Query database to confirm all matches were created
+    // CRITICAL: Only count matches from weeks 1-10 (weekIds), NOT week 11 or championship
     const createdMatches = await prisma.match.findMany({
       where: {
-        weekId: { in: weekIds }
+        weekId: { in: weekIds }, // Only weeks 1-10
+        team2Id: { not: null } // Only valid matches with both teams
       },
       select: {
         team1Id: true,
@@ -626,8 +640,16 @@ export async function POST(request: Request) {
         weekId: true
       }
     })
+    
+    // Log breakdown by week to help debug
+    const matchesByWeek = new Map<number, number>()
+    createdMatches.forEach(match => {
+      matchesByWeek.set(match.weekId, (matchesByWeek.get(match.weekId) || 0) + 1)
+    })
+    console.log(`Matches created by week (weeks 1-10 only):`, Object.fromEntries(matchesByWeek))
+    console.log(`Total matches in DB for weeks 1-10: ${createdMatches.length}, Expected: ${matchesToCreate.length}`)
 
-    // Count matches per team from database
+    // Count matches per team from database (ONLY weeks 1-10)
     const dbTeamMatchCounts = new Map<number, number>()
     teams.forEach(team => dbTeamMatchCounts.set(team.id, 0))
     
@@ -636,6 +658,13 @@ export async function POST(request: Request) {
         dbTeamMatchCounts.set(match.team1Id, (dbTeamMatchCounts.get(match.team1Id) || 0) + 1)
         dbTeamMatchCounts.set(match.team2Id, (dbTeamMatchCounts.get(match.team2Id) || 0) + 1)
       }
+    })
+    
+    // Log match counts per team for debugging
+    console.log(`Match counts per team (weeks 1-10 only):`)
+    dbTeamMatchCounts.forEach((count, teamId) => {
+      const team = teams.find(t => t.id === teamId)
+      console.log(`  Team ${team?.teamNumber || teamId}: ${count} matches`)
     })
 
     const dbMatchCounts = Array.from(dbTeamMatchCounts.values())
