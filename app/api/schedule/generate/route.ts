@@ -52,25 +52,21 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       const unmatched = new Set(shuffledTeams)
       
       // Create exactly n/2 matches, using all n teams
-      // CRITICAL: Continue until ALL teams are matched AND we have exactly targetMatchesPerWeek matches
-      // For even numbers, these should be equivalent, but we check both to be safe
-      while (unmatched.size >= 2) {
-        // Stop if we've created enough matches (should mean all teams are matched)
-        if (weekMatches.length >= targetMatchesPerWeek) {
-          // Verify all teams are matched
-          if (unmatched.size !== 0) {
-            console.error(`Week ${week + 1}: CRITICAL - Have ${weekMatches.length} matches but ${unmatched.size} teams still unmatched!`)
-            throw new Error(`Week ${week + 1}: Have ${weekMatches.length} matches but ${unmatched.size} teams still unmatched: ${Array.from(unmatched).join(', ')}`)
-          }
-          break
-        }
-        const unmatchedArray = Array.from(unmatched)
+      // CRITICAL: Use a for loop that runs exactly targetMatchesPerWeek times
+      // This guarantees we create exactly the right number of matches
+      for (let matchNum = 0; matchNum < targetMatchesPerWeek; matchNum++) {
+        // At each iteration, we should have exactly (n - 2*matchNum) teams unmatched
+        const expectedUnmatched = n - (matchNum * 2)
         
-        // Safety check
-        if (unmatchedArray.length < 2) {
-          console.error(`Week ${week + 1}: Not enough teams to form pair. Unmatched: ${unmatchedArray.length}, Matches created: ${weekMatches.length}/${targetMatchesPerWeek}`)
-          break
+        if (unmatched.size !== expectedUnmatched) {
+          throw new Error(`Week ${week + 1}, Match ${matchNum + 1}: State error. Expected ${expectedUnmatched} unmatched teams, got ${unmatched.size}`)
         }
+        
+        if (unmatched.size < 2) {
+          throw new Error(`Week ${week + 1}, Match ${matchNum + 1}: Not enough teams. Unmatched: ${unmatched.size}, Expected: ${expectedUnmatched}`)
+        }
+        
+        const unmatchedArray = Array.from(unmatched)
         
         // Find the best pair from unmatched teams
         let bestPair: [number, number] | null = null
@@ -102,11 +98,43 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
         }
         
         const [t1, t2] = bestPair
+        
+        // Verify teams are actually in unmatched set
+        if (!unmatched.has(t1) || !unmatched.has(t2)) {
+          throw new Error(`Week ${week + 1}, Match ${matchNum + 1}: Teams ${t1} or ${t2} not in unmatched set!`)
+        }
+        
+        // Add match
         weekMatches.push([t1, t2])
+        
+        // Remove from unmatched
         unmatched.delete(t1)
         unmatched.delete(t2)
+        
+        // Add to used
         usedThisWeek.add(t1)
         usedThisWeek.add(t2)
+      }
+      
+      // After the for loop, we MUST have exactly targetMatchesPerWeek matches and 0 unmatched teams
+      if (unmatched.size !== 0) {
+        const missing = Array.from(unmatched)
+        throw new Error(`Week ${week + 1}: After creating ${weekMatches.length} matches, ${unmatched.size} teams remain unmatched: ${missing.join(', ')}`)
+      }
+      
+      // Verify no team appears twice in matches
+      const teamsInMatches = new Set<number>()
+      for (const [t1, t2] of weekMatches) {
+        if (teamsInMatches.has(t1) || teamsInMatches.has(t2)) {
+          throw new Error(`Week ${week + 1}: Duplicate team in matches! Team ${teamsInMatches.has(t1) ? t1 : t2} appears multiple times`)
+        }
+        teamsInMatches.add(t1)
+        teamsInMatches.add(t2)
+      }
+      
+      if (teamsInMatches.size !== n) {
+        const missing = shuffledTeams.filter(t => !teamsInMatches.has(t))
+        throw new Error(`Week ${week + 1}: Only ${teamsInMatches.size}/${n} teams in matches. Missing: ${missing.join(', ')}`)
       }
       
       // CRITICAL VERIFICATION: All teams must be matched
