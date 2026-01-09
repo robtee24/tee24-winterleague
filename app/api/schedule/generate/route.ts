@@ -151,17 +151,16 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
     if (n % 2 === 0) {
       // Even numbers: use greedy matching (guaranteed to complete)
       // For even numbers, we must match all teams every week
+      // We need exactly n/2 matches using all n teams
       const unmatched = new Set(shuffledTeams)
       
-      // Keep matching until all teams are used (for even numbers, this always works)
-      // We need exactly n/2 matches, which means we need exactly n teams matched
-      while (unmatched.size >= 2) {
+      // Explicitly create exactly n/2 matches
+      for (let matchIndex = 0; matchIndex < targetMatchesPerWeek; matchIndex++) {
         const unmatchedArray = Array.from(unmatched)
         
-        // Must have at least 2 teams to form a pair
+        // Must have at least 2 teams (should always be true for even numbers)
         if (unmatchedArray.length < 2) {
-          console.error(`Week ${week + 1}: Not enough teams to form a pair. Remaining: ${unmatchedArray.length}`)
-          break
+          throw new Error(`Week ${week + 1}: Not enough teams to form match ${matchIndex + 1}. Remaining: ${unmatchedArray.length}, Expected: ${targetMatchesPerWeek} matches`)
         }
         
         // Find the best pair from unmatched teams
@@ -188,11 +187,9 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
           }
         }
         
-        // For even numbers, we should always find a pair when unmatched.size >= 2
+        // For even numbers, we should always find a pair
         if (!bestPair) {
-          console.error(`Week ${week + 1}: Failed to find best pair. Unmatched: ${unmatched.size}, Matches: ${weekMatches.length}`)
-          console.error(`Unmatched teams: ${unmatchedArray.join(', ')}`)
-          throw new Error(`Week ${week + 1}: Cannot find a valid pair. This should never happen for even numbers when ${unmatched.size} teams remain unmatched.`)
+          throw new Error(`Week ${week + 1}: Failed to find best pair for match ${matchIndex + 1}. Unmatched: ${unmatchedArray.length} teams. This should never happen for even numbers.`)
         }
         
         const [t1, t2] = bestPair
@@ -202,6 +199,15 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
         usedThisWeek.add(t1)
         usedThisWeek.add(t2)
         success = true
+      }
+      
+      // After loop, we should have exactly n/2 matches and 0 unmatched teams
+      if (weekMatches.length !== targetMatchesPerWeek) {
+        throw new Error(`Week ${week + 1}: Expected ${targetMatchesPerWeek} matches, got ${weekMatches.length}`)
+      }
+      
+      if (unmatched.size !== 0) {
+        throw new Error(`Week ${week + 1}: Expected 0 unmatched teams, got ${unmatched.size}. Unmatched: ${Array.from(unmatched).join(', ')}`)
       }
       
       // Verify all teams are matched and we have the right number of matches
@@ -433,28 +439,55 @@ export async function POST(request: Request) {
       team2Id: number
       isManual: boolean
     }> = []
-    
-    const teamWeekMatches = new Set<string>() // Track team-week combinations to prevent duplicates
 
-    // Collect all matches to create
+    // Collect all matches to create - schedule generation already verified uniqueness
     for (let i = 0; i < weeks.length; i++) {
       const week = weeks[i]
       const weekMatches = weeklySchedule[i] || []
 
       if (weekMatches.length === 0) {
-        console.warn(`Week ${week.weekNumber}: No matches generated`)
-        continue
+        console.error(`ERROR: Week ${week.weekNumber}: No matches generated! This should not happen.`)
+        return NextResponse.json({ 
+          error: `Week ${week.weekNumber} has no matches generated. Schedule generation failed.`,
+          details: {
+            week: week.weekNumber,
+            expectedMatches: Math.floor(teamIds.length / 2),
+            actualMatches: 0
+          }
+        }, { status: 500 })
       }
 
+      // Track teams in this week to verify uniqueness (should already be verified, but double-check)
+      const teamsInThisWeek = new Set<number>()
+      
       for (const [team1Id, team2Id] of weekMatches) {
-        // Check if either team already has a match this week
-        const team1Key = `${team1Id}-${week.id}`
-        const team2Key = `${team2Id}-${week.id}`
+        // Verify no duplicates within this week (shouldn't happen, but safety check)
+        if (teamsInThisWeek.has(team1Id) || teamsInThisWeek.has(team2Id)) {
+          console.error(`ERROR: Week ${week.weekNumber}: Duplicate team found in generated schedule! Team ${team1Id} or ${team2Id} appears multiple times.`)
+          return NextResponse.json({ 
+            error: `Schedule generation error: Week ${week.weekNumber} has duplicate teams. This indicates a bug in the algorithm.`,
+            details: {
+              week: week.weekNumber,
+              team1Id,
+              team2Id,
+              teamsInWeek: Array.from(teamsInThisWeek)
+            }
+          }, { status: 500 })
+        }
         
-        if (teamWeekMatches.has(team1Key) || teamWeekMatches.has(team2Key)) {
-          console.error(`ERROR: Skipping duplicate match in generated schedule: Team ${team1Id} vs Team ${team2Id} in Week ${week.weekNumber}`)
-          console.error(`This indicates a bug in the schedule generation algorithm!`)
-          continue
+        teamsInThisWeek.add(team1Id)
+        teamsInThisWeek.add(team2Id)
+
+        // Ensure team2Id is never null (shouldn't happen, but safety check)
+        if (!team2Id) {
+          console.error(`ERROR: Week ${week.weekNumber}: Attempted to create match with null team2Id. Team1Id: ${team1Id}`)
+          return NextResponse.json({ 
+            error: `Schedule generation error: Attempted to create match with null team2Id in Week ${week.weekNumber}`,
+            details: {
+              week: week.weekNumber,
+              team1Id
+            }
+          }, { status: 500 })
         }
 
         matchesToCreate.push({
@@ -463,9 +496,21 @@ export async function POST(request: Request) {
           team2Id,
           isManual: false
         })
-        
-        teamWeekMatches.add(team1Key)
-        teamWeekMatches.add(team2Key)
+      }
+      
+      // Verify all teams are in this week for even numbers
+      if (teamIds.length % 2 === 0 && teamsInThisWeek.size !== teamIds.length) {
+        const missing = teamIds.filter(id => !teamsInThisWeek.has(id))
+        console.error(`ERROR: Week ${week.weekNumber}: Not all teams matched. Missing: ${missing.join(', ')}`)
+        return NextResponse.json({ 
+          error: `Schedule generation error: Week ${week.weekNumber} is missing teams. Expected ${teamIds.length} teams, got ${teamsInThisWeek.size}.`,
+          details: {
+            week: week.weekNumber,
+            expectedTeams: teamIds.length,
+            actualTeams: teamsInThisWeek.size,
+            missingTeams: missing
+          }
+        }, { status: 500 })
       }
     }
 
