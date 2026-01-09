@@ -189,10 +189,21 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
         }
       }
       
-      // Verify all teams are matched
-      if (unmatched.size > 0) {
-        console.error(`Week ${week + 1}: Greedy matching incomplete. ${unmatched.size} teams unmatched: ${Array.from(unmatched).join(', ')}`)
-        throw new Error(`Failed to complete matching for week ${week + 1}. ${unmatched.size} teams remain unmatched.`)
+      // Verify all teams are matched and we have the right number of matches
+      if (unmatched.size > 0 || weekMatches.length !== targetMatchesPerWeek) {
+        console.error(`Week ${week + 1}: Greedy matching incomplete. Matches: ${weekMatches.length}/${targetMatchesPerWeek}, Unmatched: ${unmatched.size}`)
+        if (unmatched.size > 0) {
+          console.error(`Unmatched teams: ${Array.from(unmatched).join(', ')}`)
+        }
+        throw new Error(`Failed to complete matching for week ${week + 1}. ${unmatched.size} teams remain unmatched, ${weekMatches.length}/${targetMatchesPerWeek} matches created.`)
+      }
+      
+      // Double-check: ensure all teams are in usedThisWeek
+      if (usedThisWeek.size !== n) {
+        console.error(`Week ${week + 1}: Used set size mismatch. Expected ${n}, got ${usedThisWeek.size}`)
+        const missing = shuffledTeams.filter(t => !usedThisWeek.has(t))
+        console.error(`Missing from used set: ${missing.join(', ')}`)
+        throw new Error(`Week ${week + 1}: Not all teams recorded as used. Expected ${n}, got ${usedThisWeek.size}`)
       }
     } else {
       // Odd numbers: try backtracking first
@@ -319,6 +330,34 @@ export async function POST(request: Request) {
     const teamIds = teams.map(t => t.id)
     const weeklySchedule = generateRoundRobinSchedule(teamIds, weeks.length)
 
+    // Verify schedule integrity before creating matches
+    console.log(`Generated schedule for ${weeks.length} weeks with ${teamIds.length} teams`)
+    
+    for (let i = 0; i < weeklySchedule.length; i++) {
+      const weekMatches = weeklySchedule[i] || []
+      const expectedMatches = Math.floor(teamIds.length / 2)
+      
+      if (weekMatches.length !== expectedMatches) {
+        console.error(`Week ${i + 1}: Expected ${expectedMatches} matches, got ${weekMatches.length}`)
+      }
+      
+      // Verify all teams appear exactly once
+      const teamsInWeek = new Set<number>()
+      for (const [t1, t2] of weekMatches) {
+        if (teamsInWeek.has(t1) || teamsInWeek.has(t2)) {
+          console.error(`Week ${i + 1}: Duplicate team in matches! Team ${t1} or ${t2} appears multiple times`)
+        }
+        teamsInWeek.add(t1)
+        teamsInWeek.add(t2)
+      }
+      
+      if (teamIds.length % 2 === 0 && teamsInWeek.size !== teamIds.length) {
+        console.error(`Week ${i + 1}: Not all teams matched. Expected ${teamIds.length}, got ${teamsInWeek.size}`)
+        const missing = teamIds.filter(t => !teamsInWeek.has(t))
+        console.error(`Missing teams: ${missing.join(', ')}`)
+      }
+    }
+
     // Prepare all matches for batch creation
     const matchesToCreate: Array<{
       weekId: number
@@ -334,13 +373,19 @@ export async function POST(request: Request) {
       const week = weeks[i]
       const weekMatches = weeklySchedule[i] || []
 
+      if (weekMatches.length === 0) {
+        console.warn(`Week ${week.weekNumber}: No matches generated`)
+        continue
+      }
+
       for (const [team1Id, team2Id] of weekMatches) {
         // Check if either team already has a match this week
         const team1Key = `${team1Id}-${week.id}`
         const team2Key = `${team2Id}-${week.id}`
         
         if (teamWeekMatches.has(team1Key) || teamWeekMatches.has(team2Key)) {
-          console.log(`Skipping duplicate match: Team ${team1Id} vs Team ${team2Id} in Week ${week.weekNumber}`)
+          console.error(`ERROR: Skipping duplicate match in generated schedule: Team ${team1Id} vs Team ${team2Id} in Week ${week.weekNumber}`)
+          console.error(`This indicates a bug in the schedule generation algorithm!`)
           continue
         }
 
@@ -356,12 +401,49 @@ export async function POST(request: Request) {
       }
     }
 
+    // Verify expected number of matches
+    const expectedTotalMatches = weeks.length * Math.floor(teamIds.length / 2)
+    if (matchesToCreate.length !== expectedTotalMatches) {
+      console.error(`ERROR: Expected ${expectedTotalMatches} total matches, got ${matchesToCreate.length}`)
+      return NextResponse.json({ 
+        error: `Schedule generation failed: Expected ${expectedTotalMatches} matches, but only ${matchesToCreate.length} were generated. This indicates some weeks have incomplete matchings.`,
+        details: {
+          teams: teamIds.length,
+          weeks: weeks.length,
+          expectedMatches: expectedTotalMatches,
+          actualMatches: matchesToCreate.length,
+          matchesPerWeek: weeklySchedule.map((week, idx) => ({ week: idx + 1, matches: week.length }))
+        }
+      }, { status: 500 })
+    }
+
     // Batch create all matches at once for better performance
     if (matchesToCreate.length > 0) {
-      await prisma.match.createMany({
-        data: matchesToCreate,
-        skipDuplicates: true // Skip if match already exists
-      })
+      try {
+        await prisma.match.createMany({
+          data: matchesToCreate,
+          skipDuplicates: false // Don't skip - we deleted all matches first, so this should never happen
+        })
+      } catch (error: any) {
+        console.error('Error creating matches:', error)
+        // If there's a duplicate key error, it means matches already exist (shouldn't happen)
+        if (error.code === 'P2002') {
+          return NextResponse.json({ 
+            error: 'Failed to create matches: Some matches already exist. Please try again after clearing existing matches.',
+            details: error
+          }, { status: 500 })
+        }
+        throw error
+      }
+    } else {
+      return NextResponse.json({ 
+        error: 'No matches were generated. This should not happen.',
+        details: {
+          teams: teamIds.length,
+          weeks: weeks.length,
+          weeklySchedule: weeklySchedule.map((week, idx) => ({ week: idx + 1, matches: week.length }))
+        }
+      }, { status: 500 })
     }
 
     // Verify that all teams have equal number of matches (critical for even numbers)
@@ -419,6 +501,56 @@ export async function POST(request: Request) {
         }, { status: 500 })
       }
     }
+
+    // Final verification: Query database to confirm all matches were created
+    const createdMatches = await prisma.match.findMany({
+      where: {
+        weekId: { in: weekIds }
+      },
+      select: {
+        team1Id: true,
+        team2Id: true,
+        weekId: true
+      }
+    })
+
+    // Count matches per team from database
+    const dbTeamMatchCounts = new Map<number, number>()
+    teams.forEach(team => dbTeamMatchCounts.set(team.id, 0))
+    
+    createdMatches.forEach(match => {
+      if (match.team2Id) {
+        dbTeamMatchCounts.set(match.team1Id, (dbTeamMatchCounts.get(match.team1Id) || 0) + 1)
+        dbTeamMatchCounts.set(match.team2Id, (dbTeamMatchCounts.get(match.team2Id) || 0) + 1)
+      }
+    })
+
+    const dbMatchCounts = Array.from(dbTeamMatchCounts.values())
+    const dbMinMatches = Math.min(...dbMatchCounts)
+    const dbMaxMatches = Math.max(...dbMatchCounts)
+
+    if (dbMinMatches !== dbMaxMatches && teams.length % 2 === 0) {
+      console.error(`ERROR: Database verification failed - teams have unequal matches in database. Min: ${dbMinMatches}, Max: ${dbMaxMatches}`)
+      const unequalTeams: Array<{ teamId: number; matches: number }> = []
+      dbTeamMatchCounts.forEach((count, teamId) => {
+        if (count !== dbMaxMatches) {
+          unequalTeams.push({ teamId, matches: count })
+        }
+      })
+      
+      return NextResponse.json({ 
+        error: `Database verification failed: Teams have unequal match counts after creation. Min: ${dbMinMatches}, Max: ${dbMaxMatches}`,
+        details: {
+          teams: teams.length,
+          weeks: weeks.length,
+          expectedMatchesPerTeam: weeks.length,
+          dbMatchCounts: Object.fromEntries(dbTeamMatchCounts),
+          unequalTeams
+        }
+      }, { status: 500 })
+    }
+
+    console.log(`Database verification passed: All teams have ${dbMaxMatches} matches in database`)
 
     console.log(`Schedule generation complete: ${matchesToCreate.length} matches across ${weeks.length} weeks. All teams have ${maxMatches} matches.`)
 
