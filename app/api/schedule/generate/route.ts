@@ -227,9 +227,28 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       teamMatchCounts.set(t2, (teamMatchCounts.get(t2) || 0) + 1)
     }
     
+    // CRITICAL: Final check before adding to schedule
+    // For even numbers, MUST have exactly targetMatchesPerWeek matches with all n teams
+    if (n % 2 === 0) {
+      if (weekMatches.length !== targetMatchesPerWeek) {
+        throw new Error(`Week ${week + 1}: REFUSING to add incomplete week. Expected ${targetMatchesPerWeek} matches, got ${weekMatches.length}`)
+      }
+      
+      const allTeamsInWeek = new Set<number>()
+      for (const [t1, t2] of weekMatches) {
+        allTeamsInWeek.add(t1)
+        allTeamsInWeek.add(t2)
+      }
+      
+      if (allTeamsInWeek.size !== n) {
+        const missing = shuffledTeams.filter(t => !allTeamsInWeek.has(t))
+        throw new Error(`Week ${week + 1}: REFUSING to add incomplete week. Only ${allTeamsInWeek.size}/${n} teams. Missing: ${missing.join(', ')}`)
+      }
+    }
+    
     // Only add to schedule if all verifications pass
     weeklySchedule.push(weekMatches)
-    console.log(`Week ${week + 1}: ✅ Added to schedule - ${weekMatches.length} matches, all teams matched`)
+    console.log(`Week ${week + 1}: ✅ Added to schedule - ${weekMatches.length} matches, all ${n} teams matched`)
   }
   
   // FINAL VERIFICATION: Ensure all teams have exactly the same number of matches
@@ -509,24 +528,53 @@ export async function POST(request: Request) {
       }, { status: 500 })
     }
 
-    // Batch create all matches at once for better performance
+    // CRITICAL: Create matches individually to ensure ALL are created
+    // This ensures we catch any failures immediately and don't silently skip matches
+    console.log(`Creating ${matchesToCreate.length} matches in database (one by one to ensure all are created)...`)
+    let createdCount = 0
+    const failedMatches: Array<{ weekId: number; team1Id: number; team2Id: number; error: string }> = []
+    
     if (matchesToCreate.length > 0) {
-      try {
-        await prisma.match.createMany({
-          data: matchesToCreate,
-          skipDuplicates: false // Don't skip - we deleted all matches first, so this should never happen
-        })
-      } catch (error: any) {
-        console.error('Error creating matches:', error)
-        // If there's a duplicate key error, it means matches already exist (shouldn't happen)
-        if (error.code === 'P2002') {
-          return NextResponse.json({ 
-            error: 'Failed to create matches: Some matches already exist. Please try again after clearing existing matches.',
-            details: error
-          }, { status: 500 })
+      for (const match of matchesToCreate) {
+        try {
+          await prisma.match.create({
+            data: match
+          })
+          createdCount++
+        } catch (error: any) {
+          failedMatches.push({
+            weekId: match.weekId,
+            team1Id: match.team1Id,
+            team2Id: match.team2Id,
+            error: error.message || String(error)
+          })
+          console.error(`❌ Failed to create match: Week ${match.weekId}, Team ${match.team1Id} vs Team ${match.team2Id}`, error)
         }
-        throw error
       }
+      
+      if (failedMatches.length > 0) {
+        return NextResponse.json({ 
+          error: `Failed to create ${failedMatches.length} out of ${matchesToCreate.length} matches. This will cause unequal match counts.`,
+          details: {
+            totalMatches: matchesToCreate.length,
+            created: createdCount,
+            failed: failedMatches.length,
+            failedMatches: failedMatches.slice(0, 10) // Show first 10 failures
+          }
+        }, { status: 500 })
+      }
+      
+      if (createdCount !== matchesToCreate.length) {
+        return NextResponse.json({ 
+          error: `Mismatch: Expected to create ${matchesToCreate.length} matches, but created ${createdCount}`,
+          details: {
+            expected: matchesToCreate.length,
+            created: createdCount
+          }
+        }, { status: 500 })
+      }
+      
+      console.log(`✅ Successfully created all ${createdCount} matches`)
     } else {
       return NextResponse.json({ 
         error: 'No matches were generated. This should not happen.',
