@@ -52,8 +52,18 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       const unmatched = new Set(shuffledTeams)
       
       // Create exactly n/2 matches, using all n teams
-      // Use while loop to ensure we continue until all teams are matched
-      while (unmatched.size >= 2 && weekMatches.length < targetMatchesPerWeek) {
+      // CRITICAL: Continue until ALL teams are matched AND we have exactly targetMatchesPerWeek matches
+      // For even numbers, these should be equivalent, but we check both to be safe
+      while (unmatched.size >= 2) {
+        // Stop if we've created enough matches (should mean all teams are matched)
+        if (weekMatches.length >= targetMatchesPerWeek) {
+          // Verify all teams are matched
+          if (unmatched.size !== 0) {
+            console.error(`Week ${week + 1}: CRITICAL - Have ${weekMatches.length} matches but ${unmatched.size} teams still unmatched!`)
+            throw new Error(`Week ${week + 1}: Have ${weekMatches.length} matches but ${unmatched.size} teams still unmatched: ${Array.from(unmatched).join(', ')}`)
+          }
+          break
+        }
         const unmatchedArray = Array.from(unmatched)
         
         // Safety check
@@ -154,6 +164,33 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       }
     }
     
+    // CRITICAL: Verify week is complete BEFORE adding to schedule
+    if (n % 2 === 0) {
+      // For even numbers, must have exactly targetMatchesPerWeek matches and all n teams
+      if (weekMatches.length !== targetMatchesPerWeek) {
+        throw new Error(`Week ${week + 1}: Cannot add incomplete week. Expected ${targetMatchesPerWeek} matches, got ${weekMatches.length}`)
+      }
+      
+      // Verify all teams are in this week
+      const teamsInWeek = new Set<number>()
+      for (const [t1, t2] of weekMatches) {
+        teamsInWeek.add(t1)
+        teamsInWeek.add(t2)
+      }
+      
+      if (teamsInWeek.size !== n) {
+        const missing = shuffledTeams.filter(t => !teamsInWeek.has(t))
+        throw new Error(`Week ${week + 1}: Cannot add incomplete week. Only ${teamsInWeek.size}/${n} teams matched. Missing: ${missing.join(', ')}`)
+      }
+      
+      // Verify no duplicate teams in matches
+      for (const [t1, t2] of weekMatches) {
+        if (t1 === t2) {
+          throw new Error(`Week ${week + 1}: Invalid match - team ${t1} matched with itself`)
+        }
+      }
+    }
+    
     // Update counts for next week
     for (const [t1, t2] of weekMatches) {
       const pairKey = getPairKey(t1, t2)
@@ -162,7 +199,9 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
       teamMatchCounts.set(t2, (teamMatchCounts.get(t2) || 0) + 1)
     }
     
+    // Only add to schedule if all verifications pass
     weeklySchedule.push(weekMatches)
+    console.log(`Week ${week + 1}: ✅ Added to schedule - ${weekMatches.length} matches, all teams matched`)
   }
   
   // FINAL VERIFICATION: Ensure all teams have exactly the same number of matches
