@@ -121,7 +121,7 @@ function LeaderboardPageContent() {
       : '/leaderboard'
     
     // Only update URL if it's different from current URL to avoid unnecessary navigation
-    if (window.location.pathname + window.location.search !== newUrl) {
+    if (typeof window !== 'undefined' && window.location.pathname + window.location.search !== newUrl) {
       router.replace(newUrl, { scroll: false })
     }
   }, [selectedLeagueId, activeTab, router])
@@ -436,13 +436,13 @@ function LeaderboardPageContent() {
       const isTeam1 = match.team1Id === teamId
       const isTeam2 = match.team2Id === teamId
       if (!isTeam1 && !isTeam2) return // Team is not in this match, skip it
-      
-        const weekNum = match.week.isChampionship ? 12 : match.week.weekNumber
+
+      const weekNum = match.week.isChampionship ? 12 : match.week.weekNumber
       if (weekNum > 10) return // Only count weeks 1-10 for regular season record
 
       // Check if match is completed (all 4 players have submitted total scores)
       const weekScores = scores.filter(s => {
-                                const scoreWeekNum = s.week.isChampionship ? 12 : s.week.weekNumber
+        const scoreWeekNum = s.week.isChampionship ? 12 : s.week.weekNumber
         return scoreWeekNum === weekNum && s.total !== null && s.total !== undefined
       })
 
@@ -727,9 +727,10 @@ function LeaderboardPageContent() {
             </table>
           </div>
         </div>
+        )}
 
         {/* Team Leaderboard */}
-        {selectedLeagueId ? (
+        {selectedLeagueId && (
         <div className="bg-white rounded-lg shadow-lg p-6">
           <h2 className="text-2xl font-bold mb-4 text-black">Team Leaderboard</h2>
           {teams.length === 0 ? (
