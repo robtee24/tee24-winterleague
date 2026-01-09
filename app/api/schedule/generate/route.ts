@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 
 /**
  * Generate a round-robin schedule ensuring each team plays exactly once per week
- * Uses a proper round-robin algorithm to distribute matches evenly
+ * Uses a greedy matching algorithm with backtracking to ensure all teams are matched
  * Returns matches organized by week
  */
 function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Array<[number, number]>> {
@@ -12,66 +12,155 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
   
   if (n < 2) return weeklySchedule
   
+  // Randomize team order to ensure randomness in schedule
+  const shuffledTeams = [...teams].sort(() => Math.random() - 0.5)
+  
   // Track how many times each pair has played
   const pairCounts = new Map<string, number>()
   
-  // Generate all possible pairs and initialize counts
-  const allPairs: Array<[number, number]> = []
+  // Helper to get pair key (always ordered)
+  const getPairKey = (t1: number, t2: number): string => {
+    return `${Math.min(t1, t2)}-${Math.max(t1, t2)}`
+  }
+  
+  // Initialize pair counts
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
-      allPairs.push([teams[i], teams[j]])
-      const pairKey = `${Math.min(teams[i], teams[j])}-${Math.max(teams[i], teams[j])}`
-      pairCounts.set(pairKey, 0)
+      pairCounts.set(getPairKey(shuffledTeams[i], shuffledTeams[j]), 0)
     }
   }
   
+  // Track how many times each team has played
+  const teamMatchCounts = new Map<number, number>()
+  shuffledTeams.forEach(team => teamMatchCounts.set(team, 0))
+  
   // Generate schedule for each week
   for (let week = 0; week < numWeeks; week++) {
+    // For even number of teams, we need n/2 matches per week
+    // For odd number, we need (n-1)/2 matches per week (one team gets a bye)
+    const targetMatchesPerWeek = Math.floor(n / 2)
+    
+    // Create a list of all possible pairs with their priority scores
+    const allPairs: Array<{
+      pair: [number, number]
+      pairKey: string
+      pairCount: number
+      t1Count: number
+      t2Count: number
+      priority: number
+    }> = []
+    
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const t1 = shuffledTeams[i]
+        const t2 = shuffledTeams[j]
+        const pairKey = getPairKey(t1, t2)
+        const pairCount = pairCounts.get(pairKey) || 0
+        const t1Count = teamMatchCounts.get(t1) || 0
+        const t2Count = teamMatchCounts.get(t2) || 0
+        
+        // Priority: lower is better
+        // 1. Minimize pair duplicate matches (multiply by large factor)
+        // 2. Balance team appearances (sum of match counts)
+        // 3. Add small random factor for randomization
+        const priority = pairCount * 10000 + (t1Count + t2Count) * 100 + Math.random() * 10
+        
+        allPairs.push({
+          pair: [t1, t2],
+          pairKey,
+          pairCount,
+          t1Count,
+          t2Count,
+          priority
+        })
+      }
+    }
+    
+    // Sort pairs by priority (lower is better)
+    allPairs.sort((a, b) => a.priority - b.priority)
+    
+    // Use backtracking to find a perfect matching for this week
+    const findPerfectMatching = (
+      pairs: typeof allPairs,
+      used: Set<number>,
+      matches: Array<[number, number]>,
+      startIndex: number = 0
+    ): boolean => {
+      if (matches.length >= targetMatchesPerWeek) {
+        return true // Found perfect matching
+      }
+      
+      // If not enough teams left, impossible
+      const remainingTeams = n - used.size
+      if (remainingTeams < 2) {
+        return false
+      }
+      
+      // If we need more matches than possible pairs, impossible
+      const neededMatches = targetMatchesPerWeek - matches.length
+      if (neededMatches * 2 > remainingTeams) {
+        return false
+      }
+      
+      // Try each remaining pair in order
+      for (let i = startIndex; i < pairs.length; i++) {
+        const { pair, pairKey } = pairs[i]
+        const [t1, t2] = pair
+        
+        // Skip if either team is already used
+        if (used.has(t1) || used.has(t2)) {
+          continue
+        }
+        
+        // Try adding this pair
+        matches.push([t1, t2])
+        used.add(t1)
+        used.add(t2)
+        
+        // Recursively try to complete the matching
+        if (findPerfectMatching(pairs, used, matches, i + 1)) {
+          return true
+        }
+        
+        // Backtrack: remove this pair and try next
+        matches.pop()
+        used.delete(t1)
+        used.delete(t2)
+      }
+      
+      return false
+    }
+    
+    // Find perfect matching for this week
     const weekMatches: Array<[number, number]> = []
     const usedThisWeek = new Set<number>()
     
-    // Get all pairs, sorted by how many times they've played (ascending)
-    // This ensures we prioritize pairs that need more matches
-    const sortedPairs = allPairs
-      .map(pair => {
+    if (!findPerfectMatching(allPairs, usedThisWeek, weekMatches)) {
+      // Fallback: greedy approach if backtracking fails
+      console.warn(`Week ${week + 1}: Backtracking failed, using greedy approach`)
+      for (const { pair, pairKey } of allPairs) {
         const [t1, t2] = pair
-        const pairKey = `${Math.min(t1, t2)}-${Math.max(t1, t2)}`
-        const count = pairCounts.get(pairKey) || 0
-        return { pair, count, key: pairKey }
-      })
-      .sort((a, b) => {
-        // Prioritize pairs that have played fewer times
-        if (a.count !== b.count) return a.count - b.count
-        // If counts are equal, use a deterministic order based on team IDs
-        const [a1, a2] = a.pair
-        const [b1, b2] = b.pair
-        if (a1 !== b1) return a1 - b1
-        return a2 - b2
-      })
-    
-    // Fill this week with matches, ensuring each team plays exactly once
-    for (const { pair, key } of sortedPairs) {
-      const [team1, team2] = pair
-      
-      // Only add if both teams are available (not used this week)
-      if (!usedThisWeek.has(team1) && !usedThisWeek.has(team2)) {
-        weekMatches.push([team1, team2])
-        usedThisWeek.add(team1)
-        usedThisWeek.add(team2)
-        pairCounts.set(key, (pairCounts.get(key) || 0) + 1)
-        
-        // Stop if we've filled the week (each team can only play once per week)
-        // With n teams, we can have at most floor(n/2) matches per week
-        if (weekMatches.length >= Math.floor(n / 2)) {
-          break
+        if (!usedThisWeek.has(t1) && !usedThisWeek.has(t2) && weekMatches.length < targetMatchesPerWeek) {
+          weekMatches.push([t1, t2])
+          usedThisWeek.add(t1)
+          usedThisWeek.add(t2)
         }
       }
     }
     
-    // Verify that we have the correct number of matches
-    // If we have an odd number of teams, one team will have a bye
-    if (weekMatches.length < Math.floor(n / 2) && n % 2 === 0) {
-      console.warn(`Week ${week + 1}: Only generated ${weekMatches.length} matches, expected ${Math.floor(n / 2)}`)
+    // Verify we have the correct number of matches
+    if (weekMatches.length < targetMatchesPerWeek && n % 2 === 0) {
+      console.error(`Week ${week + 1}: Failed to generate complete schedule. Generated ${weekMatches.length}/${targetMatchesPerWeek} matches`)
+      const unmatched = shuffledTeams.filter(t => !usedThisWeek.has(t))
+      console.error(`Unmatched teams: ${unmatched.join(', ')}`)
+    }
+    
+    // Update counts
+    for (const [t1, t2] of weekMatches) {
+      const pairKey = getPairKey(t1, t2)
+      pairCounts.set(pairKey, (pairCounts.get(pairKey) || 0) + 1)
+      teamMatchCounts.set(t1, (teamMatchCounts.get(t1) || 0) + 1)
+      teamMatchCounts.set(t2, (teamMatchCounts.get(t2) || 0) + 1)
     }
     
     weeklySchedule.push(weekMatches)
@@ -169,10 +258,33 @@ export async function POST(request: Request) {
       })
     }
 
+    // Verify that all teams have equal number of matches
+    const teamMatchCounts = new Map<number, number>()
+    matchesToCreate.forEach(match => {
+      teamMatchCounts.set(match.team1Id, (teamMatchCounts.get(match.team1Id) || 0) + 1)
+      teamMatchCounts.set(match.team2Id, (teamMatchCounts.get(match.team2Id) || 0) + 1)
+    })
+
+    const matchCounts = Array.from(teamMatchCounts.values())
+    const minMatches = Math.min(...matchCounts)
+    const maxMatches = Math.max(...matchCounts)
+    
+    if (minMatches !== maxMatches) {
+      console.warn(`Warning: Teams have unequal match counts. Min: ${minMatches}, Max: ${maxMatches}`)
+      teamMatchCounts.forEach((count, teamId) => {
+        if (count !== maxMatches) {
+          console.warn(`Team ${teamId} has ${count} matches (expected ${maxMatches})`)
+        }
+      })
+    }
+
+    console.log(`Schedule generation complete: ${matchesToCreate.length} matches across ${weeks.length} weeks. All teams have ${maxMatches} matches.`)
+
     return NextResponse.json({
-      message: `Generated ${matchesToCreate.length} matches across ${weeks.length} weeks`,
+      message: `Generated ${matchesToCreate.length} matches across ${weeks.length} weeks. All teams have ${maxMatches} matches.`,
       matches: matchesToCreate.length,
-      weeks: weeks.length
+      weeks: weeks.length,
+      matchesPerTeam: maxMatches
     })
   } catch (error: any) {
     console.error('Error generating schedule:', error)

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -55,27 +55,86 @@ const getWeekNumberForDisplay = (week: { weekNumber: number; isChampionship: boo
   return week.isChampionship ? 12 : week.weekNumber
 }
 
-export default function LeaderboardPage() {
+function LeaderboardPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  // Get leagueId and tab from URL parameters (no auto-select if not in URL)
+  const urlLeagueId = searchParams.get('leagueId')
+  const urlTab = searchParams.get('tab')
+  
   const [leagues, setLeagues] = useState<{ id: number; name: string }[]>([])
-  const [selectedLeagueId, setSelectedLeagueId] = useState<number | null>(null)
+  const [selectedLeagueId, setSelectedLeagueId] = useState<number | null>(
+    urlLeagueId ? parseInt(urlLeagueId) : null
+  )
   const [players, setPlayers] = useState<Player[]>([])
   const [scores, setScores] = useState<Score[]>([])
   const [weeks, setWeeks] = useState<{ id: number; weekNumber: number; isChampionship: boolean }[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [matches, setMatches] = useState<Match[]>([])
-  const [activeTab, setActiveTab] = useState<'weighted' | 'unweighted'>('weighted')
+  const [activeTab, setActiveTab] = useState<'weighted' | 'unweighted'>(
+    (urlTab === 'weighted' || urlTab === 'unweighted') ? urlTab : 'weighted'
+  )
 
+  // Load leagues on mount
   useEffect(() => {
     fetch('/api/leagues')
       .then(res => res.json())
       .then(data => {
         setLeagues(data)
-        if (data.length > 0) {
-          setSelectedLeagueId(data[0].id)
-        }
+      })
+      .catch(err => {
+        console.error('[Leaderboard] Error fetching leagues:', err)
       })
   }, [])
+
+  // Sync state with URL params when they change (e.g., when navigating back via browser)
+  // Only sync from URL, don't include state in dependencies to avoid loops
+  useEffect(() => {
+    const currentLeagueId = urlLeagueId ? parseInt(urlLeagueId) : null
+    const currentTab = (urlTab === 'weighted' || urlTab === 'unweighted') ? urlTab : 'weighted'
+    
+    // Always update state to match URL (URL is source of truth)
+    setSelectedLeagueId(currentLeagueId)
+    setActiveTab(currentTab)
+  }, [urlLeagueId, urlTab])
+
+  // Update URL when league or tab changes from user interaction
+  // Use a ref to prevent updating URL when state changes due to URL sync
+  const isInitialMount = useRef(true)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return // Skip URL update on initial mount (state already matches URL)
+    }
+
+    const params = new URLSearchParams()
+    if (selectedLeagueId !== null) {
+      params.set('leagueId', selectedLeagueId.toString())
+    }
+    if (activeTab !== 'weighted') {
+      params.set('tab', activeTab)
+    }
+    
+    const newUrl = params.toString() 
+      ? `/leaderboard?${params.toString()}` 
+      : '/leaderboard'
+    
+    // Only update URL if it's different from current URL to avoid unnecessary navigation
+    if (window.location.pathname + window.location.search !== newUrl) {
+      router.replace(newUrl, { scroll: false })
+    }
+  }, [selectedLeagueId, activeTab, router])
+
+  // Handle league selection change
+  const handleLeagueChange = (leagueId: number | null) => {
+    setSelectedLeagueId(leagueId)
+  }
+
+  // Handle tab change
+  const handleTabChange = (tab: 'weighted' | 'unweighted') => {
+    setActiveTab(tab)
+  }
 
   useEffect(() => {
     if (!selectedLeagueId) return
@@ -446,24 +505,30 @@ export default function LeaderboardPage() {
         <h1 className="text-4xl font-bold mb-8 text-center text-black">Leaderboard</h1>
 
         {/* League Selection */}
-        {leagues.length > 1 && (
-          <div className="mb-6 bg-white rounded-lg shadow-lg p-4">
-            <label className="block text-sm font-semibold mb-2">Select League:</label>
-            <select
-              value={selectedLeagueId || ''}
-              onChange={(e) => setSelectedLeagueId(parseInt(e.target.value))}
-              className="px-4 py-2 border border-gray-300 rounded-lg"
-            >
-              {leagues.map((league) => (
-                <option key={league.id} value={league.id}>
-                  {league.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="mb-6 bg-white rounded-lg shadow-lg p-4">
+          <label className="block text-sm font-semibold mb-2">Select League:</label>
+          <select
+            value={selectedLeagueId || ''}
+            onChange={(e) => handleLeagueChange(e.target.value ? parseInt(e.target.value) : null)}
+            className="px-4 py-2 border border-gray-300 rounded-lg w-full"
+          >
+            <option value="">-- Select a League --</option>
+            {leagues.map((league) => (
+              <option key={league.id} value={league.id}>
+                {league.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {/* Individual Leaderboard */}
+        {!selectedLeagueId ? (
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <div className="text-center py-12">
+              <p className="text-gray-600 text-lg">Please select a league above to view the leaderboard.</p>
+            </div>
+          </div>
+        ) : (
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6 relative">
           <div className="flex justify-between items-start mb-4">
             <h2 className="text-2xl font-bold text-black">Individual Leaderboard</h2>
@@ -501,7 +566,7 @@ export default function LeaderboardPage() {
           {/* Tabs */}
           <div className="flex gap-2 mb-4">
             <button
-              onClick={() => setActiveTab('weighted')}
+              onClick={() => handleTabChange('weighted')}
               className={`px-4 py-2 rounded-lg font-semibold ${
                 activeTab === 'weighted'
                   ? 'bg-green-600 text-white'
@@ -511,7 +576,7 @@ export default function LeaderboardPage() {
               Handicapped Scores
             </button>
             <button
-              onClick={() => setActiveTab('unweighted')}
+              onClick={() => handleTabChange('unweighted')}
               className={`px-4 py-2 rounded-lg font-semibold ${
                 activeTab === 'unweighted'
                   ? 'bg-green-600 text-white'
@@ -664,6 +729,7 @@ export default function LeaderboardPage() {
         </div>
 
         {/* Team Leaderboard */}
+        {selectedLeagueId ? (
         <div className="bg-white rounded-lg shadow-lg p-6">
           <h2 className="text-2xl font-bold mb-4 text-black">Team Leaderboard</h2>
           {teams.length === 0 ? (
@@ -785,8 +851,26 @@ export default function LeaderboardPage() {
             </div>
           )}
         </div>
+        )}
       </div>
     </main>
   )
 }
 
+export default function LeaderboardPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-gradient-to-b from-green-50 to-green-100 p-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="text-center py-12">
+              <p className="text-gray-600 text-lg">Loading leaderboard...</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    }>
+      <LeaderboardPageContent />
+    </Suspense>
+  )
+}
