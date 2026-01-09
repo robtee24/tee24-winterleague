@@ -251,6 +251,11 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
     console.log(`Week ${week + 1}: ✅ Added to schedule - ${weekMatches.length} matches, all ${n} teams matched`)
   }
   
+  // CRITICAL: Verify we generated exactly numWeeks weeks
+  if (weeklySchedule.length !== numWeeks) {
+    throw new Error(`CRITICAL: Generated ${weeklySchedule.length} weeks, but expected ${numWeeks} weeks!`)
+  }
+  
   // FINAL VERIFICATION: Ensure all teams have exactly the same number of matches
   const finalTeamMatchCounts = new Map<number, number>()
   shuffledTeams.forEach(team => finalTeamMatchCounts.set(team, 0))
@@ -258,15 +263,28 @@ function generateRoundRobinSchedule(teams: number[], numWeeks: number): Array<Ar
   // Track which teams appear in which weeks for debugging
   const teamsByWeek = new Map<number, Set<number>>()
   
+  // Count matches for each team across all weeks
   for (let w = 0; w < weeklySchedule.length; w++) {
     const weekMatches = weeklySchedule[w]
     const teamsInWeek = new Set<number>()
     
+    // Verify this week has the correct number of matches
+    if (weekMatches.length !== targetMatchesPerWeek) {
+      throw new Error(`Week ${w + 1}: Has ${weekMatches.length} matches, expected ${targetMatchesPerWeek}`)
+    }
+    
+    // Count each team in this week
     for (const [t1, t2] of weekMatches) {
       finalTeamMatchCounts.set(t1, (finalTeamMatchCounts.get(t1) || 0) + 1)
       finalTeamMatchCounts.set(t2, (finalTeamMatchCounts.get(t2) || 0) + 1)
       teamsInWeek.add(t1)
       teamsInWeek.add(t2)
+    }
+    
+    // Verify all teams are in this week
+    if (teamsInWeek.size !== n) {
+      const missing = shuffledTeams.filter(t => !teamsInWeek.has(t))
+      throw new Error(`Week ${w + 1}: Only ${teamsInWeek.size}/${n} teams in matches. Missing: ${missing.join(', ')}`)
     }
     
     teamsByWeek.set(w + 1, teamsInWeek)
