@@ -378,7 +378,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Need at least 2 teams to generate schedule' }, { status: 400 })
     }
 
-    // Get weeks 1-10 (exclude 11 and championship)
+    // Get weeks 1-10 ONLY (exclude 11 and championship)
+    // For Louisville: 10 weeks of regular season, each team should have 10 matches
     const weeks = await prisma.week.findMany({
       where: {
         leagueId: parseInt(leagueId),
@@ -391,6 +392,14 @@ export async function POST(request: Request) {
     if (weeks.length === 0) {
       return NextResponse.json({ error: 'No weeks found for schedule generation' }, { status: 400 })
     }
+    
+    // Ensure we have exactly 10 weeks (or fewer if that's all that exists)
+    if (weeks.length > 10) {
+      console.warn(`Found ${weeks.length} weeks, but only using first 10 for schedule generation`)
+      weeks.splice(10) // Keep only first 10 weeks
+    }
+    
+    console.log(`Generating schedule for ${weeks.length} weeks (weeks ${weeks.map(w => w.weekNumber).join(', ')})`)
 
     // Delete existing matches for weeks 1-10 ONLY
     // This ensures we don't count matches from week 11 or championship
@@ -671,36 +680,57 @@ export async function POST(request: Request) {
     const dbMinMatches = Math.min(...dbMatchCounts)
     const dbMaxMatches = Math.max(...dbMatchCounts)
 
+    // For Louisville: 10 weeks of regular season, each team should have exactly 10 matches
+    // If that's not possible, all teams should have 9 matches (but all teams must be equal)
+    const expectedMatchesPerTeam = weeks.length // Should be 10 for Louisville
+    
     if (dbMinMatches !== dbMaxMatches && teams.length % 2 === 0) {
-      console.error(`ERROR: Database verification failed - teams have unequal matches in database. Min: ${dbMinMatches}, Max: ${dbMaxMatches}`)
-      const unequalTeams: Array<{ teamId: number; matches: number }> = []
+      console.error(`ERROR: Database verification failed - teams have unequal matches in database. Min: ${dbMinMatches}, Max: ${dbMaxMatches}, Expected: ${expectedMatchesPerTeam}`)
+      const unequalTeams: Array<{ teamId: number; teamNumber: number; matches: number }> = []
       dbTeamMatchCounts.forEach((count, teamId) => {
         if (count !== dbMaxMatches) {
-          unequalTeams.push({ teamId, matches: count })
+          const team = teams.find(t => t.id === teamId)
+          unequalTeams.push({ teamId, teamNumber: team?.teamNumber || 0, matches: count })
         }
       })
       
       return NextResponse.json({ 
-        error: `Database verification failed: Teams have unequal match counts after creation. Min: ${dbMinMatches}, Max: ${dbMaxMatches}`,
+        error: `Database verification failed: Teams have unequal match counts after creation. Expected ${expectedMatchesPerTeam} matches per team (one per week), but found min: ${dbMinMatches}, max: ${dbMaxMatches}. ${unequalTeams.length} teams have incorrect counts.`,
         details: {
           teams: teams.length,
           weeks: weeks.length,
-          expectedMatchesPerTeam: weeks.length,
-          dbMatchCounts: Object.fromEntries(dbTeamMatchCounts),
-          unequalTeams
+          expectedMatchesPerTeam,
+          actualMinMatches: dbMinMatches,
+          actualMaxMatches: dbMaxMatches,
+          unequalTeams,
+          dbMatchCounts: Object.fromEntries(dbTeamMatchCounts)
+        }
+      }, { status: 500 })
+    }
+    
+    // Final check: ensure all teams have exactly expectedMatchesPerTeam matches (should be 10 for Louisville)
+    if (dbMaxMatches !== expectedMatchesPerTeam) {
+      console.error(`ERROR: Teams have ${dbMaxMatches} matches, but expected ${expectedMatchesPerTeam} matches per team (one per week for ${weeks.length} weeks)`)
+      return NextResponse.json({ 
+        error: `Schedule generation failed: Each team should have exactly ${expectedMatchesPerTeam} matches (one per week for ${weeks.length} weeks), but found ${dbMaxMatches} matches per team.`,
+        details: {
+          teams: teams.length,
+          weeks: weeks.length,
+          expectedMatchesPerTeam,
+          actualMatchesPerTeam: dbMaxMatches,
+          totalMatchesCreated: createdMatches.length
         }
       }, { status: 500 })
     }
 
-    console.log(`Database verification passed: All teams have ${dbMaxMatches} matches in database`)
-
-    console.log(`Schedule generation complete: ${matchesToCreate.length} matches across ${weeks.length} weeks. All teams have ${maxMatches} matches.`)
+    console.log(`✅ Database verification passed: All ${teams.length} teams have exactly ${expectedMatchesPerTeam} matches (one per week for ${weeks.length} weeks)`)
 
     return NextResponse.json({
-      message: `Generated ${matchesToCreate.length} matches across ${weeks.length} weeks. All teams have ${maxMatches} matches.`,
+      success: true,
+      message: `Schedule generated successfully for ${teams.length} teams over ${weeks.length} weeks. Each team has exactly ${expectedMatchesPerTeam} matches.`,
       matches: matchesToCreate.length,
       weeks: weeks.length,
-      matchesPerTeam: maxMatches
+      matchesPerTeam: expectedMatchesPerTeam
     })
   } catch (error: any) {
     console.error('Error generating schedule:', error)
