@@ -825,7 +825,9 @@ export async function recalculateProgressiveHandicaps(
   for (let w = 1; w <= upToWeekNumber; w++) {
     const weekScores = scoresByWeek.get(w) || []
     const uniquePlayers = new Set(weekScores.map(s => s.playerId))
-    weekCompleteCache.set(w, uniquePlayers.size === playerCount && playerCount > 0)
+    const isComplete = uniquePlayers.size === playerCount && playerCount > 0
+    weekCompleteCache.set(w, isComplete)
+    console.log(`[recalculateProgressiveHandicaps] Week ${w} completeness: ${uniquePlayers.size}/${playerCount} players submitted, complete: ${isComplete}`)
   }
   
   // Group handicaps by player and week for quick lookup
@@ -845,6 +847,8 @@ export async function recalculateProgressiveHandicaps(
       rawHandicapsByPlayer.get(handicap.playerId)!.set(handicap.week.weekNumber, handicap.rawHandicap)
     }
   }
+  console.log(`[recalculateProgressiveHandicaps] Total handicaps with rawHandicap: ${allHandicaps.length}`)
+  console.log(`[recalculateProgressiveHandicaps] Players with raw handicaps: ${rawHandicapsByPlayer.size}`)
   
   const week3Complete = weekCompleteCache.get(3) || false
   
@@ -880,8 +884,11 @@ export async function recalculateProgressiveHandicaps(
     for (const week of weeks) {
       const w = week.weekNumber
       
+      console.log(`[recalculateProgressiveHandicaps] Processing Week ${w} for Player ${player.id}`)
+      
       // Skip weeks 1-3 if requested
       if (skipWeeks1to3 && w <= 3) {
+        console.log(`[recalculateProgressiveHandicaps] Skipping Week ${w} for Player ${player.id} (skipWeeks1to3=true)`)
         continue
       }
       
@@ -890,7 +897,9 @@ export async function recalculateProgressiveHandicaps(
       // For week 5+, this means the progressive handicap uses all previous weeks' data only when each prior week is complete
       if (w > 1) {
         const priorWeekComplete = weekCompleteCache.get(w - 1)
+        console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Checking if prior week ${w - 1} is complete: ${priorWeekComplete}`)
         if (!priorWeekComplete) {
+          console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Skipping because prior week ${w - 1} is not complete`)
           continue // Skip this week if prior week is not complete - wait for all scores
         }
       }
