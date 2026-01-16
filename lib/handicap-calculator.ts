@@ -1197,8 +1197,33 @@ export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
     console.log(`[recalculateAllHandicaps] Recalculating progressive handicaps up to week ${maxWeekNumber}`)
     // Process weeks in batches to avoid timeout
     const completedWeeks = weeks.filter(w => weekCompleteCache.get(w.weekNumber))
+    
+    // Process each completed week
+    // Important: When Week 4 is complete, we need to process up to Week 5 (not just Week 4)
+    // because Week 5's handicap depends on Week 4 being complete
     for (const week of completedWeeks) {
-      await recalculateProgressiveHandicaps(leagueId, week.weekNumber, false)
+      const weekNum = week.weekNumber
+      if (weekNum === 4) {
+        // When Week 4 is complete, process up to Week 5 to set Week 5's handicap
+        console.log(`[recalculateAllHandicaps] Week 4 complete, processing up to Week 5`)
+        await recalculateProgressiveHandicaps(leagueId, 5, false) // Process up to Week 5, not just Week 4
+      } else if (weekNum >= 5) {
+        // For Week 5+, process up to that week number
+        await recalculateProgressiveHandicaps(leagueId, weekNum, false)
+      } else {
+        // For weeks 1-3, process up to that week number
+        await recalculateProgressiveHandicaps(leagueId, weekNum, false)
+      }
+    }
+    
+    // Also explicitly process Week 5 if Week 4 is complete but Week 5 wasn't in the completed weeks list
+    if (maxWeekNumber >= 5 && weekCompleteCache.get(4)) {
+      const week5Completed = weekCompleteCache.get(5)
+      if (!week5Completed) {
+        // Week 4 is complete but Week 5 hasn't started yet - still need to set Week 5's handicap
+        console.log(`[recalculateAllHandicaps] Week 4 complete, Week 5 not started yet - processing Week 5 handicap`)
+        await recalculateProgressiveHandicaps(leagueId, 5, false)
+      }
     }
   }
   
