@@ -125,16 +125,16 @@ function Front9PageContent() {
     const validScores = scores.map((score, index) => {
       // If it's already a number, validate it
       if (typeof score === 'number') {
-        return isNaN(score) || !isFinite(score) || score < 0 ? 0 : Math.floor(score)
+        return isNaN(score) || !isFinite(score) || score < 0 ? 5 : Math.floor(score)
       }
       // If it's a string, try to parse it
       const scoreValue: any = score
       if (typeof scoreValue === 'string') {
         const numeric = parseInt(scoreValue.replace(/[^0-9]/g, ''), 10)
-        return isNaN(numeric) || !isFinite(numeric) || numeric < 0 ? 0 : numeric
+        return isNaN(numeric) || !isFinite(numeric) || numeric < 0 ? 5 : numeric
       }
-      // Default to 0 for any other type
-      return 0
+      // Default to 5 for any other type
+      return 5
     })
     
     // Store front 9 scores

@@ -153,14 +153,14 @@ async function calculateMatchesForWeek(weekId: number) {
     }
 
     function extractHoleScores(score: any): number[] {
-      if (!score) return Array(18).fill(0)
+      if (!score) return Array(18).fill(5)
       return [
-        score.hole1 ?? 0, score.hole2 ?? 0, score.hole3 ?? 0,
-        score.hole4 ?? 0, score.hole5 ?? 0, score.hole6 ?? 0,
-        score.hole7 ?? 0, score.hole8 ?? 0, score.hole9 ?? 0,
-        score.hole10 ?? 0, score.hole11 ?? 0, score.hole12 ?? 0,
-        score.hole13 ?? 0, score.hole14 ?? 0, score.hole15 ?? 0,
-        score.hole16 ?? 0, score.hole17 ?? 0, score.hole18 ?? 0
+        score.hole1 ?? 5, score.hole2 ?? 5, score.hole3 ?? 5,
+        score.hole4 ?? 5, score.hole5 ?? 5, score.hole6 ?? 5,
+        score.hole7 ?? 5, score.hole8 ?? 5, score.hole9 ?? 5,
+        score.hole10 ?? 5, score.hole11 ?? 5, score.hole12 ?? 5,
+        score.hole13 ?? 5, score.hole14 ?? 5, score.hole15 ?? 5,
+        score.hole16 ?? 5, score.hole17 ?? 5, score.hole18 ?? 5
       ]
     }
 
@@ -295,27 +295,27 @@ export async function PATCH(
     // If individual holes are provided, recalculate from holes
     if (data.hole1 !== undefined || data.hole2 !== undefined) {
       const holes = [
-        data.hole1 ?? existingScore.hole1 ?? 0,
-        data.hole2 ?? existingScore.hole2 ?? 0,
-        data.hole3 ?? existingScore.hole3 ?? 0,
-        data.hole4 ?? existingScore.hole4 ?? 0,
-        data.hole5 ?? existingScore.hole5 ?? 0,
-        data.hole6 ?? existingScore.hole6 ?? 0,
-        data.hole7 ?? existingScore.hole7 ?? 0,
-        data.hole8 ?? existingScore.hole8 ?? 0,
-        data.hole9 ?? existingScore.hole9 ?? 0,
-        data.hole10 ?? existingScore.hole10 ?? 0,
-        data.hole11 ?? existingScore.hole11 ?? 0,
-        data.hole12 ?? existingScore.hole12 ?? 0,
-        data.hole13 ?? existingScore.hole13 ?? 0,
-        data.hole14 ?? existingScore.hole14 ?? 0,
-        data.hole15 ?? existingScore.hole15 ?? 0,
-        data.hole16 ?? existingScore.hole16 ?? 0,
-        data.hole17 ?? existingScore.hole17 ?? 0,
-        data.hole18 ?? existingScore.hole18 ?? 0,
+        data.hole1 ?? existingScore.hole1 ?? 5,
+        data.hole2 ?? existingScore.hole2 ?? 5,
+        data.hole3 ?? existingScore.hole3 ?? 5,
+        data.hole4 ?? existingScore.hole4 ?? 5,
+        data.hole5 ?? existingScore.hole5 ?? 5,
+        data.hole6 ?? existingScore.hole6 ?? 5,
+        data.hole7 ?? existingScore.hole7 ?? 5,
+        data.hole8 ?? existingScore.hole8 ?? 5,
+        data.hole9 ?? existingScore.hole9 ?? 5,
+        data.hole10 ?? existingScore.hole10 ?? 5,
+        data.hole11 ?? existingScore.hole11 ?? 5,
+        data.hole12 ?? existingScore.hole12 ?? 5,
+        data.hole13 ?? existingScore.hole13 ?? 5,
+        data.hole14 ?? existingScore.hole14 ?? 5,
+        data.hole15 ?? existingScore.hole15 ?? 5,
+        data.hole16 ?? existingScore.hole16 ?? 5,
+        data.hole17 ?? existingScore.hole17 ?? 5,
+        data.hole18 ?? existingScore.hole18 ?? 5,
       ]
-      front9 = holes.slice(0, 9).reduce((sum, score) => sum + (score || 0), 0)
-      back9 = holes.slice(9, 18).reduce((sum, score) => sum + (score || 0), 0)
+      front9 = holes.slice(0, 9).reduce((sum, score) => sum + (score || 5), 0)
+      back9 = holes.slice(9, 18).reduce((sum, score) => sum + (score || 5), 0)
       total = front9 + back9
     }
     

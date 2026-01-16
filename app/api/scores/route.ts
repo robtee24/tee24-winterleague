@@ -22,12 +22,12 @@ function hasHoleScores(score: any): boolean {
  */
 function extractHoleScores(score: any): number[] {
   return [
-    score.hole1 ?? 0, score.hole2 ?? 0, score.hole3 ?? 0,
-    score.hole4 ?? 0, score.hole5 ?? 0, score.hole6 ?? 0,
-    score.hole7 ?? 0, score.hole8 ?? 0, score.hole9 ?? 0,
-    score.hole10 ?? 0, score.hole11 ?? 0, score.hole12 ?? 0,
-    score.hole13 ?? 0, score.hole14 ?? 0, score.hole15 ?? 0,
-    score.hole16 ?? 0, score.hole17 ?? 0, score.hole18 ?? 0
+    score.hole1 ?? 5, score.hole2 ?? 5, score.hole3 ?? 5,
+    score.hole4 ?? 5, score.hole5 ?? 5, score.hole6 ?? 5,
+    score.hole7 ?? 5, score.hole8 ?? 5, score.hole9 ?? 5,
+    score.hole10 ?? 5, score.hole11 ?? 5, score.hole12 ?? 5,
+    score.hole13 ?? 5, score.hole14 ?? 5, score.hole15 ?? 5,
+    score.hole16 ?? 5, score.hole17 ?? 5, score.hole18 ?? 5
   ]
 }
 
