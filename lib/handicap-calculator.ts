@@ -562,11 +562,14 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
         // Week 4 just completed - set Week 5's handicap using progressive average of weeks 1-4
         const rawHandicapsForWeek5 = await getPlayerRawHandicaps(player.id, leagueId, 4) // Get weeks 1-4
         
+        console.log(`[processCompletedRound] Week 4 completed - Player ${player.id} (${player.firstName}): Retrieving raw handicaps for Week 5`)
+        console.log(`[processCompletedRound] Raw handicaps found: ${rawHandicapsForWeek5.length} values: [${rawHandicapsForWeek5.join(', ')}]`)
+        
         if (rawHandicapsForWeek5.length >= 4) {
           // Calculate progressive average: average of weeks 1-4 raw handicaps
           const appliedHandicapForWeek5 = calculateAverage(rawHandicapsForWeek5)
           
-          console.log(`Player ${player.id} (${player.firstName}): Setting Week 5 handicap = ${appliedHandicapForWeek5} (progressive average of weeks 1-4: ${rawHandicapsForWeek5.join(', ')})`)
+          console.log(`[processCompletedRound] Player ${player.id} (${player.firstName}): Calculating Week 5 handicap = ${appliedHandicapForWeek5} (progressive average of weeks 1-4: ${rawHandicapsForWeek5.join(', ')})`)
           
           const week5 = await prisma.week.findFirst({
             where: {
@@ -577,7 +580,8 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
           })
           
           if (week5) {
-            await prisma.handicap.upsert({
+            console.log(`[processCompletedRound] Week 5 found (weekId: ${week5.id}), setting handicap...`)
+            const result = await prisma.handicap.upsert({
               where: {
                 playerId_weekId: {
                   playerId: player.id,
@@ -595,12 +599,32 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
                 handicap: appliedHandicapForWeek5
               }
             })
-            console.log(`  Successfully set Week 5 handicap for player ${player.id}`)
+            console.log(`[processCompletedRound] Successfully set Week 5 handicap for player ${player.id}. Record: appliedHandicap=${result.appliedHandicap}, handicap=${result.handicap}`)
           } else {
-            console.log(`  Week 5 does not exist yet`)
+            console.log(`[processCompletedRound] WARNING: Week 5 does not exist yet in database for league ${leagueId}`)
           }
         } else {
-          console.log(`  Player ${player.id} does not have enough raw handicaps for Week 5 (${rawHandicapsForWeek5.length} < 4)`)
+          console.log(`[processCompletedRound] ERROR: Player ${player.id} does not have enough raw handicaps for Week 5. Expected 4, found ${rawHandicapsForWeek5.length}. Raw handicaps: [${rawHandicapsForWeek5.join(', ')}]`)
+          
+          // Debug: Check what raw handicaps exist in the database
+          const allHandicaps = await prisma.handicap.findMany({
+            where: {
+              playerId: player.id,
+              week: {
+                leagueId,
+                weekNumber: { lte: 4 },
+                isChampionship: false
+              },
+              rawHandicap: { not: null }
+            },
+            include: { week: true },
+            orderBy: { week: { weekNumber: 'asc' } }
+          })
+          console.log(`[processCompletedRound] DEBUG: All handicap records with rawHandicap for player ${player.id}:`, allHandicaps.map(h => ({
+            weekNumber: h.week.weekNumber,
+            rawHandicap: h.rawHandicap,
+            appliedHandicap: h.appliedHandicap
+          })))
         }
       } else if (weekNumber >= 5) {
         // Week 5+: Get raw handicaps from weeks 1 through (weekNumber - 1)
