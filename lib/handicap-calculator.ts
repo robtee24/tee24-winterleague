@@ -556,16 +556,63 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
     })
     
     for (const player of players) {
-      // For week 5+: Applied handicap uses weeks 1 through (weekNumber - 1)
-      // For week 4: Applied handicap uses baseline (weeks 1-3) - already set by calculateBaselineHandicaps
-      if (weekNumber >= 5) {
+      // When Week 4 completes, set Week 5's handicap (progressive average of weeks 1-4)
+      // When Week 5+ completes, set current week's handicap and next week's handicap
+      if (weekNumber === 4) {
+        // Week 4 just completed - set Week 5's handicap using progressive average of weeks 1-4
+        const rawHandicapsForWeek5 = await getPlayerRawHandicaps(player.id, leagueId, 4) // Get weeks 1-4
+        
+        if (rawHandicapsForWeek5.length >= 4) {
+          // Calculate progressive average: average of weeks 1-4 raw handicaps
+          const appliedHandicapForWeek5 = calculateAverage(rawHandicapsForWeek5)
+          
+          console.log(`Player ${player.id} (${player.firstName}): Setting Week 5 handicap = ${appliedHandicapForWeek5} (progressive average of weeks 1-4: ${rawHandicapsForWeek5.join(', ')})`)
+          
+          const week5 = await prisma.week.findFirst({
+            where: {
+              leagueId,
+              weekNumber: 5,
+              isChampionship: false
+            }
+          })
+          
+          if (week5) {
+            await prisma.handicap.upsert({
+              where: {
+                playerId_weekId: {
+                  playerId: player.id,
+                  weekId: week5.id
+                }
+              },
+              update: {
+                appliedHandicap: appliedHandicapForWeek5,
+                handicap: appliedHandicapForWeek5
+              },
+              create: {
+                playerId: player.id,
+                weekId: week5.id,
+                appliedHandicap: appliedHandicapForWeek5,
+                handicap: appliedHandicapForWeek5
+              }
+            })
+            console.log(`  Successfully set Week 5 handicap for player ${player.id}`)
+          } else {
+            console.log(`  Week 5 does not exist yet`)
+          }
+        } else {
+          console.log(`  Player ${player.id} does not have enough raw handicaps for Week 5 (${rawHandicapsForWeek5.length} < 4)`)
+        }
+      } else if (weekNumber >= 5) {
         // Week 5+: Get raw handicaps from weeks 1 through (weekNumber - 1)
         // This is the progressive average of all previous weeks' raw handicaps (strokes back from the lead)
         const rawHandicapsForCurrentWeek = await getPlayerRawHandicaps(player.id, leagueId, weekNumber - 1)
         
         console.log(`Player ${player.id} (${player.firstName}): ${rawHandicapsForCurrentWeek.length} raw handicaps for week ${weekNumber} (using weeks 1-${weekNumber - 1})`)
         
-        if (rawHandicapsForCurrentWeek.length >= 3) {
+        // Week 5 needs exactly 4 raw handicaps (weeks 1-4), Week 6+ needs (weekNumber - 1) raw handicaps
+        const minRequiredForCurrent = weekNumber === 5 ? 4 : weekNumber - 1
+        
+        if (rawHandicapsForCurrentWeek.length >= minRequiredForCurrent) {
           // Calculate progressive average: average of all previous weeks' raw handicaps
           const appliedHandicapForCurrentWeek = calculateAverage(rawHandicapsForCurrentWeek)
           
@@ -852,16 +899,16 @@ export async function recalculateProgressiveHandicaps(
           .map(weekNum => playerRawHandicaps.get(weekNum))
           .filter((h): h is number => h !== undefined)
         
-        // For Week 5, we need at least 4 raw handicaps (weeks 1-4)
-        // For Week 6+, we need at least the number of previous weeks
-        const minRequired = w === 5 ? 4 : Math.max(3, w - 1)
+        // For Week 5, we need exactly 4 raw handicaps (weeks 1-4)
+        // For Week 6+, we need at least (w-1) raw handicaps (all previous weeks)
+        const minRequired = w === 5 ? 4 : w - 1
         
         if (rawHandicaps.length >= minRequired) {
           // Calculate progressive average: average of all previous weeks' raw handicaps
           appliedHandicap = calculateAverage(rawHandicaps)
           console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Progressive handicap = ${appliedHandicap} (average of weeks 1-${w-1}: ${rawHandicaps.join(', ')})`)
         } else {
-          console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Not enough raw handicaps (${rawHandicaps.length} < ${minRequired})`)
+          console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Not enough raw handicaps (${rawHandicaps.length} < ${minRequired}). Need weeks 1-${w-1}, have: [${rawHandicaps.map((h, idx) => `${idx+1}:${h}`).join(', ')}]`)
         }
       }
       
