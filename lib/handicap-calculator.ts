@@ -712,6 +712,11 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
     // Don't recalculate weeks 1-3 - baseline was just set by calculateBaselineHandicaps
     // Only recalculate week 4+ if they exist
     await recalculateProgressiveHandicaps(leagueId, weekNumber, true)
+  } else if (weekNumber === 4) {
+    // When Week 4 completes, we've already set Week 5's handicap above
+    // Call recalculateProgressiveHandicaps with weekNumber + 1 to process Week 5
+    // This ensures Week 5 is processed correctly and any other weeks up to Week 5
+    await recalculateProgressiveHandicaps(leagueId, weekNumber + 1, false)
   } else {
     await recalculateProgressiveHandicaps(leagueId, weekNumber)
   }
@@ -903,36 +908,67 @@ export async function recalculateProgressiveHandicaps(
         // For Week 6+, we need at least (w-1) raw handicaps (all previous weeks)
         const minRequired = w === 5 ? 4 : w - 1
         
+        console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Processing progressive handicap calculation`)
+        console.log(`[recalculateProgressiveHandicaps] Raw handicaps retrieved: ${rawHandicaps.length} values: [${rawHandicaps.join(', ')}]`)
+        console.log(`[recalculateProgressiveHandicaps] Minimum required: ${minRequired} (need weeks 1-${w-1})`)
+        
         if (rawHandicaps.length >= minRequired) {
           // Calculate progressive average: average of all previous weeks' raw handicaps
           appliedHandicap = calculateAverage(rawHandicaps)
-          console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Progressive handicap = ${appliedHandicap} (average of weeks 1-${w-1}: ${rawHandicaps.join(', ')})`)
+          console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Calculated progressive handicap = ${appliedHandicap} (average of weeks 1-${w-1}: ${rawHandicaps.join(', ')})`)
         } else {
-          console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Not enough raw handicaps (${rawHandicaps.length} < ${minRequired}). Need weeks 1-${w-1}, have: [${rawHandicaps.map((h, idx) => `${idx+1}:${h}`).join(', ')}]`)
+          console.log(`[recalculateProgressiveHandicaps] ERROR: Week ${w}, Player ${player.id}: Not enough raw handicaps (${rawHandicaps.length} < ${minRequired}). Need weeks 1-${w-1}, have: [${rawHandicaps.map((h, idx) => `week${idx+1}:${h}`).join(', ')}]`)
+          
+          // Debug: Check what raw handicaps exist in the database for this player
+          const debugHandicaps = await prisma.handicap.findMany({
+            where: {
+              playerId: player.id,
+              week: {
+                leagueId,
+                weekNumber: { lte: w - 1 },
+                isChampionship: false
+              }
+            },
+            include: { week: true },
+            orderBy: { week: { weekNumber: 'asc' } }
+          })
+          console.log(`[recalculateProgressiveHandicaps] DEBUG: All handicap records for player ${player.id}, weeks 1-${w-1}:`, debugHandicaps.map(h => ({
+            weekNumber: h.week.weekNumber,
+            rawHandicap: h.rawHandicap,
+            appliedHandicap: h.appliedHandicap,
+            handicap: h.handicap
+          })))
         }
       }
       
+      // For weeks 5+, appliedHandicap can be > 0 even if it's the result of calculation
+      // For weeks 1-3, appliedHandicap is 0 (no handicap)
+      // For week 4, appliedHandicap is the baseline (can be > 0)
+      // For weeks 5+, appliedHandicap is the progressive average (can be > 0)
       if (appliedHandicap > 0 || w <= 3) {
+        console.log(`[recalculateProgressiveHandicaps] Adding handicap update for Week ${w}, Player ${player.id}: appliedHandicap = ${appliedHandicap}`)
         handicapUpdates.push({
           playerId: player.id,
           weekId: week.id,
           appliedHandicap
         })
-        
-        // Update weighted scores for this player/week
-        const playerWeekScores = allPlayerScores.filter(
-          s => s.playerId === player.id && s.weekId === week.id
-        )
-        
-        for (const score of playerWeekScores) {
-          if (score.total !== null) {
-            const weightedScore = Math.round(score.total - appliedHandicap)
-            if (score.weightedScore !== weightedScore) {
-              scoreUpdates.push({
-                id: score.id,
-                weightedScore
-              })
-            }
+      } else {
+        console.log(`[recalculateProgressiveHandicaps] Skipping Week ${w}, Player ${player.id}: appliedHandicap = ${appliedHandicap} (would set to 0)`)
+      }
+      
+      // Update weighted scores for this player/week
+      const playerWeekScores = allPlayerScores.filter(
+        s => s.playerId === player.id && s.weekId === week.id
+      )
+      
+      for (const score of playerWeekScores) {
+        if (score.total !== null) {
+          const weightedScore = Math.round(score.total - appliedHandicap)
+          if (score.weightedScore !== weightedScore) {
+            scoreUpdates.push({
+              id: score.id,
+              weightedScore
+            })
           }
         }
       }
@@ -956,13 +992,13 @@ export async function recalculateProgressiveHandicaps(
             },
             update: {
               appliedHandicap: update.appliedHandicap,
-              handicap: update.appliedHandicap
+              handicap: update.appliedHandicap // Ensure both fields are set to the same value
             },
             create: {
               playerId: update.playerId,
               weekId: update.weekId,
               appliedHandicap: update.appliedHandicap,
-              handicap: update.appliedHandicap
+              handicap: update.appliedHandicap // Ensure both fields are set to the same value
             }
           })
         )
