@@ -19,6 +19,7 @@ function hasHoleScores(score: any): boolean {
 
 /**
  * Extract hole scores from a score record
+ * Returns scores with default (5) for missing holes - used for total calculations
  */
 function extractHoleScores(score: any): number[] {
   return [
@@ -32,30 +33,46 @@ function extractHoleScores(score: any): number[] {
 }
 
 /**
- * Get team scores, handling cases where a player only has total score
- * If one player has no hole scores, use the teammate's scores
+ * Extract actual hole scores (excludes default scores)
+ * Returns null for holes that were not actually scored - used for team match play
  */
-function getTeamScores(player1Score: any, player2Score: any): number[][] {
+function extractActualHoleScores(score: any): (number | null)[] {
+  return [
+    score.hole1 ?? null, score.hole2 ?? null, score.hole3 ?? null,
+    score.hole4 ?? null, score.hole5 ?? null, score.hole6 ?? null,
+    score.hole7 ?? null, score.hole8 ?? null, score.hole9 ?? null,
+    score.hole10 ?? null, score.hole11 ?? null, score.hole12 ?? null,
+    score.hole13 ?? null, score.hole14 ?? null, score.hole15 ?? null,
+    score.hole16 ?? null, score.hole17 ?? null, score.hole18 ?? null
+  ]
+}
+
+/**
+ * Get team scores for match play (excludes default scores)
+ * If one player has no hole scores, use the teammate's scores
+ * Returns arrays with null for holes that used default scores
+ */
+function getTeamScoresForMatchPlay(player1Score: any, player2Score: any): (number | null)[][] {
   const player1HasHoles = hasHoleScores(player1Score)
   const player2HasHoles = hasHoleScores(player2Score)
 
-  // If both have hole scores, use both
+  // If both have hole scores, use both (only actual scores, not defaults)
   if (player1HasHoles && player2HasHoles) {
     return [
-      extractHoleScores(player1Score),
-      extractHoleScores(player2Score)
+      extractActualHoleScores(player1Score),
+      extractActualHoleScores(player2Score)
     ]
   }
 
   // If only player1 has hole scores, use player1's scores for both
   if (player1HasHoles && !player2HasHoles) {
-    const player1Scores = extractHoleScores(player1Score)
+    const player1Scores = extractActualHoleScores(player1Score)
     return [player1Scores, player1Scores]
   }
 
   // If only player2 has hole scores, use player2's scores for both
   if (!player1HasHoles && player2HasHoles) {
-    const player2Scores = extractHoleScores(player2Score)
+    const player2Scores = extractActualHoleScores(player2Score)
     return [player2Scores, player2Scores]
   }
 
@@ -67,18 +84,21 @@ function getTeamScores(player1Score: any, player2Score: any): number[][] {
  * Calculate Best Ball Match Play score
  * For each hole, compare lowest score from each team
  * Lower score gets 1 point, ties get 0 points
+ * Holes where a team only has default scores (null) are excluded
  */
-function calculateMatchPlay(team1Scores: number[][], team2Scores: number[][]): { team1Points: number; team2Points: number } {
+function calculateMatchPlay(team1Scores: (number | null)[][], team2Scores: (number | null)[][]): { team1Points: number; team2Points: number } {
   let team1Points = 0
   let team2Points = 0
 
   for (let hole = 0; hole < 18; hole++) {
-    // Get lowest score for each team on this hole
-    const team1HoleScores = team1Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined && s > 0)
-    const team2HoleScores = team2Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined && s > 0)
+    // Get actual (non-null) scores for each team on this hole
+    // Null means it was a default score and should be excluded
+    const team1HoleScores = team1Scores.map(s => s[hole]).filter((s): s is number => s !== null && s !== undefined && s > 0)
+    const team2HoleScores = team2Scores.map(s => s[hole]).filter((s): s is number => s !== null && s !== undefined && s > 0)
 
+    // Skip holes where either team has no actual scores (only defaults)
     if (team1HoleScores.length === 0 || team2HoleScores.length === 0) {
-      continue // Skip holes where no scores are available
+      continue // Skip holes where no actual scores are available (default scores don't count)
     }
 
     const team1Low = Math.min(...team1HoleScores)
@@ -264,12 +284,12 @@ async function calculateMatchesForWeek(weekId: number) {
       continue // Skip if team 2 has no scores
     }
 
-    // Get team scores (handling cases where players only have total scores)
-    const team1Scores = getTeamScores(team1Player1Score, team1Player2Score)
-    const team2Scores = getTeamScores(team2Player1Score, team2Player2Score)
+    // Get team scores for match play (excludes default scores)
+    const team1Scores = getTeamScoresForMatchPlay(team1Player1Score, team1Player2Score)
+    const team2Scores = getTeamScoresForMatchPlay(team2Player1Score, team2Player2Score)
 
     console.log(`  Team1 scores: ${team1Scores.length} players, Team2 scores: ${team2Scores.length} players`)
-    console.log(`  Team1 has valid scores: ${team1Scores.length > 0 && team1Scores[0].length > 0 && !team1Scores.every(s => s.every(h => h === 0))}`)
+    console.log(`  Team1 has valid scores: ${team1Scores.length > 0 && team1Scores[0].length > 0 && team1Scores.some(s => s.some(h => h !== null))}`)
     console.log(`  Team2 has valid scores: ${team2Scores.length > 0 && team2Scores[0].length > 0 && !team2Scores.every(s => s.every(h => h === 0))}`)
 
     // Check if we have valid scores for both teams

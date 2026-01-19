@@ -7,14 +7,23 @@ import { processCompletedRound, calculateAppliedHandicap, ensureAllWeightedScore
  * For each hole, compare lowest score from each team
  * Lower score gets 1 point, ties get 0 points
  */
-function calculateMatchPlay(team1Scores: number[][], team2Scores: number[][]): { team1Points: number; team2Points: number } {
+function calculateMatchPlay(team1Scores: (number | null)[][], team2Scores: (number | null)[][]): { team1Points: number; team2Points: number } {
   let team1Points = 0
   let team2Points = 0
 
   for (let hole = 0; hole < 18; hole++) {
-    // Get lowest score for each team on this hole
-    const team1Low = Math.min(...team1Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined))
-    const team2Low = Math.min(...team2Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined))
+    // Get actual (non-null) scores for each team on this hole
+    // Null means it was a default score and should be excluded
+    const team1HoleScores = team1Scores.map(s => s[hole]).filter((s): s is number => s !== null && s !== undefined && s > 0)
+    const team2HoleScores = team2Scores.map(s => s[hole]).filter((s): s is number => s !== null && s !== undefined && s > 0)
+
+    // Skip holes where either team has no actual scores (only defaults)
+    if (team1HoleScores.length === 0 || team2HoleScores.length === 0) {
+      continue // Skip holes where no actual scores are available (default scores don't count)
+    }
+
+    const team1Low = Math.min(...team1HoleScores)
+    const team2Low = Math.min(...team2HoleScores)
 
     if (team1Low < team2Low) {
       team1Points++
@@ -164,53 +173,67 @@ async function calculateMatchesForWeek(weekId: number) {
       ]
     }
 
-    function getTeamScores(player1Score: any, player2Score: any): number[][] {
+    function extractActualHoleScores(score: any): (number | null)[] {
+      if (!score) return Array(18).fill(null)
+      return [
+        score.hole1 ?? null, score.hole2 ?? null, score.hole3 ?? null,
+        score.hole4 ?? null, score.hole5 ?? null, score.hole6 ?? null,
+        score.hole7 ?? null, score.hole8 ?? null, score.hole9 ?? null,
+        score.hole10 ?? null, score.hole11 ?? null, score.hole12 ?? null,
+        score.hole13 ?? null, score.hole14 ?? null, score.hole15 ?? null,
+        score.hole16 ?? null, score.hole17 ?? null, score.hole18 ?? null
+      ]
+    }
+
+    function getTeamScoresForMatchPlay(player1Score: any, player2Score: any): (number | null)[][] {
       const player1HasHoles = hasHoleScores(player1Score)
       const player2HasHoles = hasHoleScores(player2Score)
 
       if (player1HasHoles && player2HasHoles) {
         return [
-          extractHoleScores(player1Score),
-          extractHoleScores(player2Score)
+          extractActualHoleScores(player1Score),
+          extractActualHoleScores(player2Score)
         ]
       }
 
       if (player1HasHoles && !player2HasHoles) {
-        const player1Scores = extractHoleScores(player1Score)
+        const player1Scores = extractActualHoleScores(player1Score)
         return [player1Scores, player1Scores]
       }
 
       if (!player1HasHoles && player2HasHoles) {
-        const player2Scores = extractHoleScores(player2Score)
+        const player2Scores = extractActualHoleScores(player2Score)
         return [player2Scores, player2Scores]
       }
 
       return [[], []]
     }
 
-    const team1Scores = getTeamScores(team1Player1Score, team1Player2Score)
-    const team2Scores = getTeamScores(team2Player1Score, team2Player2Score)
+    const team1Scores = getTeamScoresForMatchPlay(team1Player1Score, team1Player2Score)
+    const team2Scores = getTeamScoresForMatchPlay(team2Player1Score, team2Player2Score)
 
-    // Check if we have valid scores for both teams
-    if (team1Scores.length === 0 || team1Scores[0].length === 0 || team1Scores.every(s => s.every(h => h === 0))) {
-      continue // Skip if team 1 has no hole-by-hole scores
+    // Check if we have valid scores for both teams (at least one actual score, not all null/default)
+    if (team1Scores.length === 0 || team1Scores[0].length === 0 || team1Scores.every(s => s.every(h => h === null))) {
+      continue // Skip if team 1 has no actual hole-by-hole scores
     }
 
-    if (team2Scores.length === 0 || team2Scores[0].length === 0 || team2Scores.every(s => s.every(h => h === 0))) {
-      continue // Skip if team 2 has no hole-by-hole scores
+    if (team2Scores.length === 0 || team2Scores[0].length === 0 || team2Scores.every(s => s.every(h => h === null))) {
+      continue // Skip if team 2 has no actual hole-by-hole scores
     }
 
-    // Calculate match play points - filter out 0 scores
-    function calculateMatchPlayFiltered(team1Scores: number[][], team2Scores: number[][]): { team1Points: number; team2Points: number } {
+    // Calculate match play points - exclude default scores (null values)
+    function calculateMatchPlayFiltered(team1Scores: (number | null)[][], team2Scores: (number | null)[][]): { team1Points: number; team2Points: number } {
       let team1Points = 0
       let team2Points = 0
 
       for (let hole = 0; hole < 18; hole++) {
-        const team1HoleScores = team1Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined && s > 0)
-        const team2HoleScores = team2Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined && s > 0)
+        // Filter out null (default scores) - only count actual scores
+        const team1HoleScores = team1Scores.map(s => s[hole]).filter((s): s is number => s !== null && s !== undefined && s > 0)
+        const team2HoleScores = team2Scores.map(s => s[hole]).filter((s): s is number => s !== null && s !== undefined && s > 0)
 
+        // Skip holes where either team has no actual scores (only defaults)
         if (team1HoleScores.length === 0 || team2HoleScores.length === 0) {
-          continue
+          continue // Skip holes where no actual scores are available (default scores don't count)
         }
 
         const team1Low = Math.min(...team1HoleScores)
@@ -221,6 +244,7 @@ async function calculateMatchesForWeek(weekId: number) {
         } else if (team2Low < team1Low) {
           team2Points++
         }
+        // If tied, no points awarded
       }
 
       return { team1Points, team2Points }
