@@ -742,7 +742,10 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
     // This ensures Week 5 is processed correctly and any other weeks up to Week 5
     await recalculateProgressiveHandicaps(leagueId, weekNumber + 1, false)
   } else {
-    await recalculateProgressiveHandicaps(leagueId, weekNumber)
+    // When Week 5+ completes, call recalculateProgressiveHandicaps with weekNumber + 1
+    // to process the next week's handicap (e.g., when Week 5 completes, process Week 6)
+    // This ensures the next week's handicap is calculated when the current week completes
+    await recalculateProgressiveHandicaps(leagueId, weekNumber + 1, false)
   }
 }
 
