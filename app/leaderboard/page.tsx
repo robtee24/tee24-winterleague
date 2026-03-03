@@ -140,111 +140,29 @@ function LeaderboardPageContent() {
     if (!selectedLeagueId) return
 
     fetch(`/api/players?leagueId=${selectedLeagueId}`)
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`Failed to fetch players: ${res.status} ${res.statusText}`)
-        }
-        return res.json()
-      })
-      .then(data => {
-        // Check if response is an error object
-        if (data && typeof data === 'object' && 'error' in data) {
-          console.error('[Leaderboard] API returned error:', data.error)
-          setPlayers([])
-          return
-        }
-        const isArray = Array.isArray(data)
-        if (!isArray) {
-          console.error('[Leaderboard] Players data is not an array!', data)
-          setPlayers([])
-          return
-        }
-        console.log('[Leaderboard] Players loaded:', { count: data.length, players: data })
-        setPlayers(data)
-      })
-      .catch(err => {
-        console.error('[Leaderboard] Error fetching players:', err)
-        setPlayers([])
-      })
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setPlayers(data) })
+      .catch(err => console.error('[Leaderboard] Error fetching players:', err))
 
     fetch(`/api/scores?leagueId=${selectedLeagueId}`)
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`Failed to fetch scores: ${res.status} ${res.statusText}`)
-        }
-        return res.json()
-      })
-      .then(data => {
-        // Check if response is an error object
-        if (data && typeof data === 'object' && 'error' in data) {
-          console.error('[Leaderboard] API returned error:', data.error)
-          setScores([])
-          return
-        }
-        const isArray = Array.isArray(data)
-        if (!isArray) {
-          console.error('[Leaderboard] Scores data is not an array!', data)
-          setScores([])
-          return
-        }
-        console.log('[Leaderboard] Scores loaded:', { count: data.length })
-        setScores(data)
-      })
-      .catch(err => {
-        console.error('[Leaderboard] Error fetching scores:', err)
-        setScores([])
-      })
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setScores(data) })
+      .catch(err => console.error('[Leaderboard] Error fetching scores:', err))
 
     fetch(`/api/weeks?leagueId=${selectedLeagueId}`)
-      .then(res => {
-        if (!res.ok) throw new Error(`Failed to fetch weeks: ${res.status}`)
-        return res.json()
-      })
-      .then(data => {
-        const isArray = Array.isArray(data)
-        if (!isArray) {
-          console.error('[Leaderboard] Weeks data is not an array!', data)
-        }
-        setWeeks(isArray ? data : [])
-      })
-      .catch(err => {
-        console.error('[Leaderboard] Error fetching weeks:', err)
-        setWeeks([])
-      })
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setWeeks(data) })
+      .catch(err => console.error('[Leaderboard] Error fetching weeks:', err))
 
     fetch(`/api/teams?leagueId=${selectedLeagueId}`)
-      .then(res => {
-        if (!res.ok) throw new Error(`Failed to fetch teams: ${res.status}`)
-        return res.json()
-      })
-      .then(data => {
-        const isArray = Array.isArray(data)
-        if (!isArray) {
-          console.error('[Leaderboard] Teams data is not an array!', data)
-        }
-        setTeams(isArray ? data : [])
-      })
-      .catch(err => {
-        console.error('[Leaderboard] Error fetching teams:', err)
-        setTeams([])
-      })
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setTeams(data) })
+      .catch(err => console.error('[Leaderboard] Error fetching teams:', err))
 
     fetch(`/api/matches?leagueId=${selectedLeagueId}`)
-      .then(res => {
-        if (!res.ok) throw new Error(`Failed to fetch matches: ${res.status}`)
-        return res.json()
-      })
-      .then(data => {
-        const isArray = Array.isArray(data)
-        if (!isArray) {
-          console.error('[Leaderboard] Matches data is not an array!', data)
-        }
-        setMatches(isArray ? data : [])
-      })
-      .catch(err => {
-        console.error('[Leaderboard] Error fetching matches:', err)
-        setMatches([])
-      })
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setMatches(data) })
+      .catch(err => console.error('[Leaderboard] Error fetching matches:', err))
   }, [selectedLeagueId])
 
   const getPlayerScores = (playerId: number) => {

@@ -143,69 +143,34 @@ function PlayerPageContent() {
       })
 
     fetch(`/api/scores?playerId=${playerId}&leagueId=${leagueId}`)
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`Failed to fetch scores: ${res.status} ${res.statusText}`)
-        }
-        return res.json()
-      })
-      .then(data => {
-        const isArray = Array.isArray(data)
-        console.log('[PlayerPage] Scores loaded:', { 
-          count: isArray ? data.length : 0,
-          isArray,
-          type: typeof data,
-          sample: isArray && data.length > 0 ? data[0] : null
-        })
-        if (!isArray) {
-          console.warn('[PlayerPage] Scores data is not an array!', data)
-        }
-        setScores(isArray ? data : [])
-      })
-      .catch(err => {
-        console.error('[PlayerPage] Error fetching scores:', err)
-        setScores([])
-      })
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setScores(data) })
+      .catch(err => console.error('[PlayerPage] Error fetching scores:', err))
 
     fetch(`/api/handicaps?playerId=${playerId}`)
       .then(res => res.json())
-      .then(data => setHandicaps(Array.isArray(data) ? data : []))
-      .catch(err => {
-        console.error('Error fetching handicaps:', err)
-        setHandicaps([])
-      })
+      .then(data => { if (Array.isArray(data)) setHandicaps(data) })
+      .catch(err => console.error('Error fetching handicaps:', err))
 
     fetch(`/api/teams?playerId=${playerId}&leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setTeams(Array.isArray(data) ? data : []))
-      .catch(err => {
-        console.error('Error fetching teams:', err)
-        setTeams([])
-      })
+      .then(data => { if (Array.isArray(data)) setTeams(data) })
+      .catch(err => console.error('Error fetching teams:', err))
 
     fetch(`/api/weeks?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setWeeks(Array.isArray(data) ? data : []))
-      .catch(err => {
-        console.error('Error fetching weeks:', err)
-        setWeeks([])
-      })
+      .then(data => { if (Array.isArray(data)) setWeeks(data) })
+      .catch(err => console.error('Error fetching weeks:', err))
 
     fetch(`/api/matches?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setMatches(Array.isArray(data) ? data : []))
-      .catch(err => {
-        console.error('Error fetching matches:', err)
-        setMatches([])
-      })
+      .then(data => { if (Array.isArray(data)) setMatches(data) })
+      .catch(err => console.error('Error fetching matches:', err))
 
     fetch(`/api/scores?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setAllLeagueScores(Array.isArray(data) ? data : []))
-      .catch(err => {
-        console.error('Error fetching all league scores:', err)
-        setAllLeagueScores([])
-      })
+      .then(data => { if (Array.isArray(data)) setAllLeagueScores(data) })
+      .catch(err => console.error('Error fetching all league scores:', err))
 
     fetch(`/api/players?leagueId=${leagueId}`)
       .then(res => {
