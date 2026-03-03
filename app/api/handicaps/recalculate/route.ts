@@ -10,46 +10,35 @@ import {
 
 export const maxDuration = 60
 
-const STEPS: Record<string, { label: string; fn: (lid: number) => Promise<void> }> = {
-  '1': {
-    label: 'Verifying database schema',
-    fn: async (lid) => {
-      await ensureIsDefaultColumn()
-      await backfillDefaultScores(lid)
-    }
-  },
-  '2': {
-    label: 'Calculating raw handicaps',
-    fn: async (lid) => { await calculateRawHandicapsForLeague(lid) }
-  },
-  '3': {
-    label: 'Calculating progressive handicaps',
-    fn: async (lid) => { await calculateAllProgressiveForLeague(lid) }
-  },
-  '4': {
-    label: 'Updating weighted scores',
-    fn: async (lid) => { await ensureAllWeightedScores(lid) }
-  },
-  '5': {
-    label: 'Updating default score totals',
-    fn: async (lid) => { await recalculateDefaultScores(lid) }
+async function runStep1(lid: number) {
+  const columnExists = await ensureIsDefaultColumn()
+  if (columnExists) {
+    await backfillDefaultScores(lid)
   }
 }
 
+const STEPS: Record<string, { label: string; fn: (lid: number) => Promise<void> }> = {
+  '1': { label: 'Verifying database schema', fn: runStep1 },
+  '2': { label: 'Calculating raw handicaps', fn: (lid) => calculateRawHandicapsForLeague(lid) },
+  '3': { label: 'Calculating progressive handicaps', fn: (lid) => calculateAllProgressiveForLeague(lid) },
+  '4': { label: 'Updating weighted scores', fn: (lid) => ensureAllWeightedScores(lid) },
+  '5': { label: 'Updating default score totals', fn: (lid) => recalculateDefaultScores(lid) }
+}
+
 export async function POST(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url)
-    const leagueId = searchParams.get('leagueId')
-    const step = searchParams.get('step')
+  const { searchParams } = new URL(request.url)
+  const leagueId = searchParams.get('leagueId')
+  const step = searchParams.get('step')
 
-    if (!leagueId) {
-      return NextResponse.json({ error: 'League ID required' }, { status: 400 })
-    }
+  if (!leagueId) {
+    return NextResponse.json({ error: 'League ID required' }, { status: 400 })
+  }
 
-    const lid = parseInt(leagueId)
+  const lid = parseInt(leagueId)
 
-    if (step && STEPS[step]) {
-      const s = STEPS[step]
+  if (step && STEPS[step]) {
+    const s = STEPS[step]
+    try {
       console.log(`[recalculate] Step ${step}: ${s.label} for league ${lid}`)
       await s.fn(lid)
       return NextResponse.json({
@@ -58,11 +47,18 @@ export async function POST(request: Request) {
         label: s.label,
         done: step === '5'
       })
+    } catch (error: any) {
+      console.error(`[recalculate] Step ${step} failed:`, error)
+      return NextResponse.json(
+        { error: error?.message || `Step ${step} failed`, step: parseInt(step), label: s.label },
+        { status: 500 }
+      )
     }
+  }
 
-    // Legacy: no step param — run all steps in sequence
-    await ensureIsDefaultColumn()
-    await backfillDefaultScores(lid)
+  // Legacy: no step param — run all steps in sequence
+  try {
+    await runStep1(lid)
     await calculateRawHandicapsForLeague(lid)
     await calculateAllProgressiveForLeague(lid)
     await ensureAllWeightedScores(lid)
@@ -74,7 +70,9 @@ export async function POST(request: Request) {
     })
   } catch (error: any) {
     console.error('Error recalculating handicaps:', error)
-    const errorMessage = error?.message || 'Failed to recalculate handicaps'
-    return NextResponse.json({ error: errorMessage }, { status: 500 })
+    return NextResponse.json(
+      { error: error?.message || 'Failed to recalculate handicaps' },
+      { status: 500 }
+    )
   }
 }

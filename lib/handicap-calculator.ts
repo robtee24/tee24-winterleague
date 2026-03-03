@@ -1136,82 +1136,73 @@ export async function ensureAllWeightedScores(leagueId: number): Promise<void> {
 let _isDefaultColumnVerified = false
 
 /**
- * Ensure the isDefault column exists on the Score table.
- * Runs the ALTER TABLE idempotently so the app self-heals if the migration was never applied.
- * Cached per process so DDL only runs once (avoids PgBouncer prepared statement invalidation).
+ * Verify the isDefault column exists on the Score table.
+ * Uses a lightweight SELECT probe instead of DDL (ALTER TABLE doesn't work through PgBouncer).
+ * Returns true if the column exists, false otherwise.
  */
-export async function ensureIsDefaultColumn(): Promise<void> {
-  if (_isDefaultColumnVerified) return
+export async function ensureIsDefaultColumn(): Promise<boolean> {
+  if (_isDefaultColumnVerified) return true
   try {
-    await prisma.$executeRawUnsafe(
-      `ALTER TABLE "Score" ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN NOT NULL DEFAULT false`
-    )
+    await prisma.$queryRawUnsafe(`SELECT "isDefault" FROM "Score" LIMIT 1`)
     _isDefaultColumnVerified = true
-    console.log('[ensureIsDefaultColumn] Column verified/created')
-  } catch (err: any) {
-    console.error('[ensureIsDefaultColumn] Error:', err?.message)
+    console.log('[ensureIsDefaultColumn] Column exists')
+    return true
+  } catch {
+    console.warn('[ensureIsDefaultColumn] Column does not exist — run the migration SQL in Supabase')
+    return false
   }
 }
 
 /**
  * Backfill old default scores that were created before the isDefault column existed.
- * Only identifies scores where all 18 holes are null but total is set -- this is the
- * signature of scores submitted via the new isDefault code path before the column existed.
- * Never uses heuristics on hole values to avoid false positives on real scores.
+ * Only identifies scores where all 18 holes are null but total is set.
+ * Uses Prisma ORM instead of raw SQL for compatibility with PgBouncer.
  */
 export async function backfillDefaultScores(leagueId: number): Promise<void> {
-  // Quick check: count scores that might need backfilling (all holes null, not yet marked)
-  const candidates = await prisma.$queryRawUnsafe(`
-    SELECT COUNT(*) as cnt FROM "Score" s
-    JOIN "Player" p ON s."playerId" = p.id
-    WHERE p."leagueId" = $1
-      AND s.total IS NOT NULL
-      AND s."isDefault" = false
-      AND s.hole1 IS NULL AND s.hole2 IS NULL AND s.hole3 IS NULL
-      AND s.hole4 IS NULL AND s.hole5 IS NULL AND s.hole6 IS NULL
-      AND s.hole7 IS NULL AND s.hole8 IS NULL AND s.hole9 IS NULL
-      AND s.hole10 IS NULL AND s.hole11 IS NULL AND s.hole12 IS NULL
-      AND s.hole13 IS NULL AND s.hole14 IS NULL AND s.hole15 IS NULL
-      AND s.hole16 IS NULL AND s.hole17 IS NULL AND s.hole18 IS NULL
-  `, leagueId) as any[]
+  try {
+    const candidates = await prisma.score.findMany({
+      where: {
+        player: { leagueId },
+        total: { not: null },
+        isDefault: false,
+        hole1: null, hole2: null, hole3: null,
+        hole4: null, hole5: null, hole6: null,
+        hole7: null, hole8: null, hole9: null,
+        hole10: null, hole11: null, hole12: null,
+        hole13: null, hole14: null, hole15: null,
+        hole16: null, hole17: null, hole18: null,
+      },
+      select: { id: true, playerId: true, weekId: true }
+    })
 
-  const count = Number(candidates[0]?.cnt ?? 0)
-  if (count === 0) {
-    console.log(`[backfillDefaultScores] No unmarked defaults found, skipping`)
-    return
+    if (candidates.length === 0) {
+      console.log(`[backfillDefaultScores] No unmarked defaults found, skipping`)
+      return
+    }
+
+    console.log(`[backfillDefaultScores] Marking ${candidates.length} scores as isDefault=true`)
+
+    await prisma.score.updateMany({
+      where: { id: { in: candidates.map(c => c.id) } },
+      data: { isDefault: true }
+    })
+
+    // Null out raw handicaps for the newly-marked defaults
+    const BATCH = 50
+    for (let i = 0; i < candidates.length; i += BATCH) {
+      const batch = candidates.slice(i, i + BATCH)
+      await Promise.all(
+        batch.map(c =>
+          prisma.handicap.updateMany({
+            where: { playerId: c.playerId, weekId: c.weekId },
+            data: { rawHandicap: null }
+          }).catch(() => {})
+        )
+      )
+    }
+  } catch (err: any) {
+    console.error('[backfillDefaultScores] Error (skipping):', err?.message)
   }
-
-  console.log(`[backfillDefaultScores] Found ${count} scores to mark as isDefault=true`)
-
-  // Mark them
-  await prisma.$executeRawUnsafe(`
-    UPDATE "Score" SET "isDefault" = true
-    WHERE id IN (
-      SELECT s.id FROM "Score" s
-      JOIN "Player" p ON s."playerId" = p.id
-      WHERE p."leagueId" = $1
-        AND s.total IS NOT NULL
-        AND s."isDefault" = false
-        AND s.hole1 IS NULL AND s.hole2 IS NULL AND s.hole3 IS NULL
-        AND s.hole4 IS NULL AND s.hole5 IS NULL AND s.hole6 IS NULL
-        AND s.hole7 IS NULL AND s.hole8 IS NULL AND s.hole9 IS NULL
-        AND s.hole10 IS NULL AND s.hole11 IS NULL AND s.hole12 IS NULL
-        AND s.hole13 IS NULL AND s.hole14 IS NULL AND s.hole15 IS NULL
-        AND s.hole16 IS NULL AND s.hole17 IS NULL AND s.hole18 IS NULL
-    )
-  `, leagueId)
-
-  // Null out raw handicaps for newly-marked defaults
-  await prisma.$executeRawUnsafe(`
-    UPDATE "Handicap" SET "rawHandicap" = NULL
-    WHERE id IN (
-      SELECT h.id FROM "Handicap" h
-      JOIN "Score" s ON h."playerId" = s."playerId" AND h."weekId" = s."weekId"
-      JOIN "Player" p ON s."playerId" = p.id
-      WHERE p."leagueId" = $1
-        AND s."isDefault" = true
-    )
-  `, leagueId)
 }
 
 /**
