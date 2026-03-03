@@ -80,7 +80,10 @@ export default function WeekPage() {
     fetch(`/api/scores?leagueId=${leagueId}`)
       .then(res => res.json())
       .then(allScores => {
-        // Filter scores by weekNumber (not weekId) to handle duplicate weeks
+        if (!Array.isArray(allScores)) {
+          console.error('Scores API returned non-array:', allScores)
+          return
+        }
         const targetWeekNumber = weekNumber === 'championship' ? 'championship' : parseInt(weekNumber || '0')
         const weekScores = allScores.filter((s: any) => {
           if (weekNumber === 'championship') {

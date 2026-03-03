@@ -131,12 +131,13 @@ export default function PlayerPage() {
 
     fetch(`/api/scores?playerId=${playerId}`)
       .then(res => res.json())
-      .then(data => setScores(data))
+      .then(data => { if (Array.isArray(data)) setScores(data) })
+      .catch(err => console.error('Error fetching player scores:', err))
 
-    // Fetch all scores for the league to calculate round lows
     fetch(`/api/scores?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setAllLeagueScores(data))
+      .then(data => { if (Array.isArray(data)) setAllLeagueScores(data) })
+      .catch(err => console.error('Error fetching league scores:', err))
 
     fetch(`/api/handicaps?playerId=${playerId}`)
       .then(res => res.json())
