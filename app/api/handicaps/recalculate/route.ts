@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { recalculateAllHandicaps } from '@/lib/handicap-calculator'
+import { recalculateAllHandicaps, recalculateDefaultScores } from '@/lib/handicap-calculator'
 
 export async function POST(request: Request) {
   try {
@@ -10,11 +10,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'League ID required' }, { status: 400 })
     }
 
-    await recalculateAllHandicaps(parseInt(leagueId))
+    const lid = parseInt(leagueId)
+    await recalculateAllHandicaps(lid)
+
+    // Recalculate default score totals now that handicaps are updated
+    try {
+      await recalculateDefaultScores(lid)
+    } catch (defaultErr: any) {
+      console.warn('Could not recalculate default scores (column may not exist yet):', defaultErr?.message)
+    }
 
     return NextResponse.json({ 
-      message: 'Handicaps recalculated successfully',
-      leagueId: parseInt(leagueId)
+      message: 'Handicaps and default scores recalculated successfully',
+      leagueId: lid
     })
   } catch (error: any) {
     console.error('Error recalculating handicaps:', error)

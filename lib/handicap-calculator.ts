@@ -180,8 +180,7 @@ export async function calculateBaselineHandicaps(leagueId: number): Promise<void
           weekNumber: { lte: 3 },
           isChampionship: false
         },
-        total: { not: null },
-        isDefault: false
+        total: { not: null }
       },
       include: { week: true }
     })
@@ -191,8 +190,9 @@ export async function calculateBaselineHandicaps(leagueId: number): Promise<void
   const weekIdSet = new Set(weekIds)
   
   // Group scores by player (excludes default scores)
+  const nonDefaultScoresBaseline = allScores.filter(s => !s.isDefault)
   const scoresByPlayer = new Map<number, typeof allScores>()
-  for (const score of allScores) {
+  for (const score of nonDefaultScoresBaseline) {
     if (!scoresByPlayer.has(score.playerId)) {
       scoresByPlayer.set(score.playerId, [])
     }
@@ -1371,4 +1371,97 @@ export async function ensureAllWeightedScores(leagueId: number): Promise<void> {
   }
   
   console.log(`[ensureAllWeightedScores] Completed for league ${leagueId}`)
+}
+
+/**
+ * Recalculate all default scores for a league.
+ * Default score = roundLow + playerHandicap + 5
+ * Called when handicaps are recalculated so default scores stay in sync.
+ */
+export async function recalculateDefaultScores(leagueId: number): Promise<void> {
+  console.log(`[recalculateDefaultScores] Starting for league ${leagueId}`)
+
+  const defaultScores = await prisma.score.findMany({
+    where: {
+      player: { leagueId },
+      isDefault: true,
+      total: { not: null }
+    },
+    include: {
+      player: true,
+      week: true
+    }
+  })
+
+  if (defaultScores.length === 0) {
+    console.log(`[recalculateDefaultScores] No default scores found`)
+    return
+  }
+
+  // Get all non-default scores to compute round lows per week
+  const allRealScores = await prisma.score.findMany({
+    where: {
+      player: { leagueId },
+      isDefault: false,
+      total: { not: null }
+    },
+    include: { week: true }
+  })
+
+  // Build round low per weekNumber from real scores only
+  const roundLowByWeek = new Map<number, number>()
+  for (const s of allRealScores) {
+    const wn = s.week.weekNumber
+    const current = roundLowByWeek.get(wn)
+    if (current === undefined || s.total! < current) {
+      roundLowByWeek.set(wn, s.total!)
+    }
+  }
+
+  // Get all handicaps for lookup
+  const allHandicaps = await prisma.handicap.findMany({
+    where: { player: { leagueId } },
+    include: { week: true }
+  })
+  const handicapMap = new Map<string, number>()
+  for (const h of allHandicaps) {
+    const key = `${h.playerId}-${h.weekId}`
+    handicapMap.set(key, h.appliedHandicap ?? h.handicap ?? 0)
+  }
+
+  const updates: Array<{ id: number; total: number; front9: number; back9: number; weightedScore: number }> = []
+
+  for (const ds of defaultScores) {
+    const roundLow = roundLowByWeek.get(ds.week.weekNumber)
+    if (roundLow === undefined) continue
+
+    const hKey = `${ds.playerId}-${ds.weekId}`
+    const playerHandicap = handicapMap.get(hKey) ?? 0
+    const newTotal = roundLow + playerHandicap + 5
+    const newFront9 = Math.round(newTotal / 2)
+    const newBack9 = newTotal - newFront9
+    const weightedScore = Math.round(newTotal - playerHandicap)
+
+    if (ds.total !== newTotal || ds.weightedScore !== weightedScore) {
+      updates.push({ id: ds.id, total: newTotal, front9: newFront9, back9: newBack9, weightedScore })
+    }
+  }
+
+  if (updates.length > 0) {
+    console.log(`[recalculateDefaultScores] Updating ${updates.length} default scores`)
+    const BATCH_SIZE = 50
+    for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+      const batch = updates.slice(i, i + BATCH_SIZE)
+      await Promise.all(
+        batch.map(u =>
+          prisma.score.update({
+            where: { id: u.id },
+            data: { total: u.total, front9: u.front9, back9: u.back9, weightedScore: u.weightedScore }
+          })
+        )
+      )
+    }
+  }
+
+  console.log(`[recalculateDefaultScores] Completed for league ${leagueId}`)
 }

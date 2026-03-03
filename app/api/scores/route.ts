@@ -512,21 +512,41 @@ export async function POST(request: Request) {
       }
     })
 
+    // Build isDefault data - wrapped so it degrades gracefully if column doesn't exist yet
+    const isDefaultData = isDefault ? { isDefault: true } : {}
+
     let score
     if (existingScores.length > 0) {
       // Update the most recent existing score
-      score = await prisma.score.update({
-        where: { id: existingScores[0].id },
-        data: {
-          ...holeData,
-          front9,
-          back9,
-          total,
-          weightedScore,
-          isDefault: !!isDefault,
-          scorecardImage: scorecardImage !== undefined ? scorecardImage : existingScores[0].scorecardImage
+      try {
+        score = await prisma.score.update({
+          where: { id: existingScores[0].id },
+          data: {
+            ...holeData,
+            front9,
+            back9,
+            total,
+            weightedScore,
+            ...isDefaultData,
+            scorecardImage: scorecardImage !== undefined ? scorecardImage : existingScores[0].scorecardImage
+          }
+        })
+      } catch (updateErr: any) {
+        // If isDefault column doesn't exist yet, retry without it
+        if (updateErr?.message?.includes('isDefault')) {
+          console.warn('isDefault column not found, saving without it')
+          score = await prisma.score.update({
+            where: { id: existingScores[0].id },
+            data: {
+              ...holeData,
+              front9, back9, total, weightedScore,
+              scorecardImage: scorecardImage !== undefined ? scorecardImage : existingScores[0].scorecardImage
+            }
+          })
+        } else {
+          throw updateErr
         }
-      })
+      }
       
       // Delete any other duplicate scores for this player/week
       if (existingScores.length > 1) {
@@ -542,10 +562,7 @@ export async function POST(request: Request) {
       console.log('Creating new score with data:', {
         playerId: parseInt(playerId),
         weekId: parseInt(weekId),
-        front9,
-        back9,
-        total,
-        weightedScore,
+        front9, back9, total, weightedScore,
         isDefault: !!isDefault
       })
       
@@ -555,20 +572,29 @@ export async function POST(request: Request) {
             playerId: parseInt(playerId),
             weekId: parseInt(weekId),
             ...holeData,
-            front9,
-            back9,
-            total,
-            weightedScore,
-            isDefault: !!isDefault,
+            front9, back9, total, weightedScore,
+            ...isDefaultData,
             scorecardImage: scorecardImage || null
           }
         })
         console.log('Score created successfully:', score.id)
       } catch (createError: any) {
-        console.error('Prisma create error:', createError)
-        console.error('Error code:', createError?.code)
-        console.error('Error meta:', createError?.meta)
-        throw createError
+        // If isDefault column doesn't exist yet, retry without it
+        if (createError?.message?.includes('isDefault')) {
+          console.warn('isDefault column not found, creating without it')
+          score = await prisma.score.create({
+            data: {
+              playerId: parseInt(playerId),
+              weekId: parseInt(weekId),
+              ...holeData,
+              front9, back9, total, weightedScore,
+              scorecardImage: scorecardImage || null
+            }
+          })
+        } else {
+          console.error('Prisma create error:', createError)
+          throw createError
+        }
       }
     }
 
