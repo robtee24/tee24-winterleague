@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { processCompletedRound, calculateAppliedHandicap, ensureAllWeightedScores, recalculateAllHandicaps, ensureIsDefaultColumn } from '@/lib/handicap-calculator'
 
+export const maxDuration = 60
+
 /**
  * Check if a score has hole-by-hole data
  */

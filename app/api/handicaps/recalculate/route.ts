@@ -6,6 +6,8 @@ import {
   recalculateDefaultScores
 } from '@/lib/handicap-calculator'
 
+export const maxDuration = 60
+
 export async function POST(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
