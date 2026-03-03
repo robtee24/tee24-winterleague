@@ -709,21 +709,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // Run asynchronously to not block the response
-    checkAndProcessWeek().catch(error => {
-      console.error('Error processing week completion:', error)
-    })
-    
-    // Also run legacy code for backward compatibility (will be redundant if week is complete)
-    processCompletedRound(week.leagueId, week.weekNumber)
-      .then(() => {
-        console.log(`Successfully processed round ${week.weekNumber} for league ${week.leagueId}`)
-        // Calculate matches for this week
-        return calculateMatchesForWeek(parseInt(weekId))
+    // Skip heavy background recalculation for default scores.
+    // Default scores don't affect handicaps, so recalculation should be done
+    // manually via the "Recalculate Handicaps" button after all defaults are submitted.
+    if (!isDefault) {
+      checkAndProcessWeek().catch(error => {
+        console.error('Error processing week completion:', error)
       })
-      .then(() => {
-        console.log(`Successfully calculated matches for week ${week.weekNumber}`)
-        // After processing, check if all players submitted and log next week's handicap status
+
+      processCompletedRound(week.leagueId, week.weekNumber)
+        .then(() => {
+          console.log(`Successfully processed round ${week.weekNumber} for league ${week.leagueId}`)
+          return calculateMatchesForWeek(parseInt(weekId))
+        })
+        .then(() => {
+          console.log(`Successfully calculated matches for week ${week.weekNumber}`)
         return prisma.player.count({ where: { leagueId: week.leagueId } })
           .then(totalPlayers => {
             return prisma.score.count({
@@ -763,8 +763,8 @@ export async function POST(request: Request) {
       })
       .catch(error => {
         console.error('Error processing completed round:', error)
-        console.error('Error stack:', error?.stack)
       })
+    } // end if (!isDefault)
     
     // Ensure weighted score is calculated (fallback)
     if (score.total !== null && score.total !== undefined) {

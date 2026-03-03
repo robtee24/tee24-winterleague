@@ -240,6 +240,7 @@ export default function PlayerPage() {
     loadData()
 
     let msg = `Submitted ${submitted} default score${submitted !== 1 ? 's' : ''}.`
+    if (submitted > 0) msg += `\n\nPlease click "Recalculate Handicaps" to update handicaps and default score totals.`
     if (errors.length > 0) msg += `\n\nErrors:\n${errors.join('\n')}`
     alert(msg)
   }
