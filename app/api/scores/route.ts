@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { processCompletedRound, calculateAppliedHandicap, ensureAllWeightedScores, recalculateAllHandicaps, ensureIsDefaultColumn } from '@/lib/handicap-calculator'
+import { processCompletedRound, calculateAppliedHandicap, ensureAllWeightedScores, recalculateAllHandicaps } from '@/lib/handicap-calculator'
 
 export const maxDuration = 60
 
@@ -376,10 +376,6 @@ export async function POST(request: Request) {
   try {
     const data = await request.json()
     const { playerId, weekId, scores, scorecardImage, isDefault } = data
-
-    if (isDefault) {
-      await ensureIsDefaultColumn()
-    }
 
     console.log(`[${requestId}] SCORE_SUBMISSION_START:`, {
       timestamp: new Date().toISOString(),
@@ -764,14 +760,13 @@ export async function POST(request: Request) {
       .catch(error => {
         console.error('Error processing completed round:', error)
       })
+      // Ensure weighted score is calculated (fallback)
+      if (score.total !== null && score.total !== undefined) {
+        ensureAllWeightedScores(week.leagueId).catch(error => {
+          console.error('Error ensuring weighted scores:', error)
+        })
+      }
     } // end if (!isDefault)
-    
-    // Ensure weighted score is calculated (fallback)
-    if (score.total !== null && score.total !== undefined) {
-      ensureAllWeightedScores(week.leagueId).catch(error => {
-        console.error('Error ensuring weighted scores:', error)
-      })
-    }
     
     console.log(`[${requestId}] SCORE_SUBMISSION_SUCCESS:`, {
       timestamp: new Date().toISOString(),

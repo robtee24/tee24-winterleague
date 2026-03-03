@@ -73,7 +73,7 @@ export default function WeekPage() {
 
     fetch(`/api/players?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setPlayers(data))
+      .then(data => { if (Array.isArray(data)) setPlayers(data) })
       .catch(err => console.error('Error fetching players:', err))
 
     // Fetch all scores for the league and filter by weekNumber
@@ -107,6 +107,7 @@ export default function WeekPage() {
         Promise.all(weekIds.map(weekId => 
           fetch(`/api/handicaps?weekId=${weekId}`)
             .then(res => res.json())
+            .then(data => Array.isArray(data) ? data : [])
             .catch(() => [])
         )).then(handicapArrays => {
           const allHandicaps = handicapArrays.flat()
@@ -121,6 +122,7 @@ export default function WeekPage() {
           fetch(`/api/weeks?leagueId=${leagueId}`)
             .then(res => res.json())
             .then(weeks => {
+              if (!Array.isArray(weeks)) return
               const matchingWeek = weeks.find((w: any) => 
                 weekNumber === 'championship' 
                   ? w.isChampionship 
@@ -130,6 +132,7 @@ export default function WeekPage() {
                 setCurrentWeekId(matchingWeek.id)
               }
             })
+            .catch(err => console.error('Error fetching weeks:', err))
         }
       })
       .catch(err => console.error('Error fetching scores:', err))
@@ -138,7 +141,7 @@ export default function WeekPage() {
     fetch(`/api/courses?leagueId=${leagueId}`)
       .then(res => res.json())
       .then(courses => {
-        // Championship week is stored as week 12 in the database
+        if (!Array.isArray(courses)) return
         const targetWeekNumber = weekNumber === 'championship' ? 12 : parseInt(weekNumber || '0')
         const course = courses.find((c: any) => c.week === targetWeekNumber)
         if (course) {

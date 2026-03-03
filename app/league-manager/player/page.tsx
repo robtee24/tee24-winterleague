@@ -114,9 +114,10 @@ export default function PlayerPage() {
 
     fetch(`/api/players?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(players => {
-        setAllPlayers(players)
-        const found = players.find((p: Player) => p.id === parseInt(playerId))
+      .then(data => {
+        if (!Array.isArray(data)) return
+        setAllPlayers(data)
+        const found = data.find((p: Player) => p.id === parseInt(playerId))
         if (found) {
           setPlayer(found)
           setContactInfo({
@@ -129,6 +130,7 @@ export default function PlayerPage() {
           })
         }
       })
+      .catch(err => console.error('Error fetching players:', err))
 
     fetch(`/api/scores?playerId=${playerId}`)
       .then(res => res.json())
@@ -143,6 +145,7 @@ export default function PlayerPage() {
     fetch(`/api/handicaps?playerId=${playerId}`)
       .then(res => res.json())
       .then(data => {
+        if (!Array.isArray(data)) return
         setHandicaps(data)
         const handicapMap: { [weekId: number]: number } = {}
         data.forEach((h: Handicap) => {
@@ -150,15 +153,16 @@ export default function PlayerPage() {
         })
         setEditingHandicaps(handicapMap)
       })
+      .catch(err => console.error('Error fetching handicaps:', err))
 
     fetch(`/api/weeks?leagueId=${leagueId}`)
       .then(res => res.json())
-      .then(data => setWeeks(data))
+      .then(data => { if (Array.isArray(data)) setWeeks(data) })
+      .catch(err => console.error('Error fetching weeks:', err))
 
-    // Fetch teams for this player
     fetch(`/api/teams?playerId=${playerId}`)
       .then(res => res.json())
-      .then(data => setTeams(data))
+      .then(data => { if (Array.isArray(data)) setTeams(data) })
       .catch(err => console.error('Error fetching teams:', err))
   }
 
