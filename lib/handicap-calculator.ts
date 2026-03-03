@@ -1374,17 +1374,118 @@ export async function ensureAllWeightedScores(leagueId: number): Promise<void> {
 }
 
 /**
+ * Ensure the isDefault column exists on the Score table.
+ * Runs the ALTER TABLE idempotently so the app self-heals if the migration was never applied.
+ */
+export async function ensureIsDefaultColumn(): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "Score" ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN NOT NULL DEFAULT false`
+    )
+    console.log('[ensureIsDefaultColumn] Column verified/created')
+  } catch (err: any) {
+    console.error('[ensureIsDefaultColumn] Error:', err?.message)
+  }
+}
+
+/**
+ * Backfill old default scores that were created before the isDefault column existed.
+ * Identifies them by: all 18 holes are the same value (evenly distributed artificial scores),
+ * or all 18 holes are null while total is set.
+ * Marks them isDefault=true and removes their raw handicap records.
+ */
+export async function backfillDefaultScores(leagueId: number): Promise<void> {
+  console.log(`[backfillDefaultScores] Starting for league ${leagueId}`)
+
+  const allScores = await prisma.score.findMany({
+    where: {
+      player: { leagueId },
+      total: { not: null }
+    },
+    include: { week: true }
+  })
+
+  const toMark: number[] = []
+
+  for (const s of allScores) {
+    if (s.isDefault) continue // already marked
+
+    const holes = [
+      s.hole1, s.hole2, s.hole3, s.hole4, s.hole5, s.hole6,
+      s.hole7, s.hole8, s.hole9, s.hole10, s.hole11, s.hole12,
+      s.hole13, s.hole14, s.hole15, s.hole16, s.hole17, s.hole18
+    ]
+
+    const allNull = holes.every(h => h === null || h === undefined)
+    // Evenly distributed: all non-null holes within 1 stroke of each other (artificial pattern)
+    const nonNullHoles = holes.filter((h): h is number => h !== null && h !== undefined)
+    const allSame = nonNullHoles.length === 18 &&
+      (Math.max(...nonNullHoles) - Math.min(...nonNullHoles) <= 1)
+
+    if (allNull || allSame) {
+      toMark.push(s.id)
+    }
+  }
+
+  if (toMark.length === 0) {
+    console.log(`[backfillDefaultScores] No old default scores to backfill`)
+    return
+  }
+
+  console.log(`[backfillDefaultScores] Marking ${toMark.length} scores as isDefault=true`)
+
+  // Mark them as default
+  await prisma.score.updateMany({
+    where: { id: { in: toMark } },
+    data: { isDefault: true }
+  })
+
+  // Remove raw handicap records for these scores so they stop polluting averages
+  const markedScores = allScores.filter(s => toMark.includes(s.id))
+  const handicapDeletes: Array<{ playerId: number; weekId: number }> = []
+  for (const s of markedScores) {
+    handicapDeletes.push({ playerId: s.playerId, weekId: s.weekId })
+  }
+
+  if (handicapDeletes.length > 0) {
+    console.log(`[backfillDefaultScores] Clearing raw handicaps for ${handicapDeletes.length} default-score entries`)
+    for (const del of handicapDeletes) {
+      await prisma.handicap.updateMany({
+        where: {
+          playerId: del.playerId,
+          weekId: del.weekId
+        },
+        data: { rawHandicap: null }
+      }).catch(() => {}) // ignore if record doesn't exist
+    }
+  }
+
+  // Also null-out hole data on these scores
+  await prisma.score.updateMany({
+    where: { id: { in: toMark } },
+    data: {
+      hole1: null, hole2: null, hole3: null, hole4: null, hole5: null, hole6: null,
+      hole7: null, hole8: null, hole9: null, hole10: null, hole11: null, hole12: null,
+      hole13: null, hole14: null, hole15: null, hole16: null, hole17: null, hole18: null
+    }
+  })
+
+  console.log(`[backfillDefaultScores] Completed for league ${leagueId}`)
+}
+
+/**
  * Recalculate all default scores for a league.
  * Default score = roundLow + playerHandicap + 5
  * Called when handicaps are recalculated so default scores stay in sync.
+ * Uses runtime filtering to be resilient if isDefault column is not yet in DB.
  */
 export async function recalculateDefaultScores(leagueId: number): Promise<void> {
   console.log(`[recalculateDefaultScores] Starting for league ${leagueId}`)
 
-  const defaultScores = await prisma.score.findMany({
+  // Fetch all scores and filter at runtime (no Prisma WHERE on isDefault)
+  const allScores = await prisma.score.findMany({
     where: {
       player: { leagueId },
-      isDefault: true,
       total: { not: null }
     },
     include: {
@@ -1393,24 +1494,17 @@ export async function recalculateDefaultScores(leagueId: number): Promise<void> 
     }
   })
 
+  const defaultScores = allScores.filter(s => s.isDefault)
+  const realScores = allScores.filter(s => !s.isDefault)
+
   if (defaultScores.length === 0) {
     console.log(`[recalculateDefaultScores] No default scores found`)
     return
   }
 
-  // Get all non-default scores to compute round lows per week
-  const allRealScores = await prisma.score.findMany({
-    where: {
-      player: { leagueId },
-      isDefault: false,
-      total: { not: null }
-    },
-    include: { week: true }
-  })
-
   // Build round low per weekNumber from real scores only
   const roundLowByWeek = new Map<number, number>()
-  for (const s of allRealScores) {
+  for (const s of realScores) {
     const wn = s.week.weekNumber
     const current = roundLowByWeek.get(wn)
     if (current === undefined || s.total! < current) {

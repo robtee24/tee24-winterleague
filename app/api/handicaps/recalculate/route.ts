@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server'
-import { recalculateAllHandicaps, recalculateDefaultScores } from '@/lib/handicap-calculator'
+import {
+  ensureIsDefaultColumn,
+  backfillDefaultScores,
+  recalculateAllHandicaps,
+  recalculateDefaultScores
+} from '@/lib/handicap-calculator'
 
 export async function POST(request: Request) {
   try {
@@ -11,14 +16,18 @@ export async function POST(request: Request) {
     }
 
     const lid = parseInt(leagueId)
+
+    // Step 1: Ensure the isDefault column exists (self-healing migration)
+    await ensureIsDefaultColumn()
+
+    // Step 2: Backfill old default scores that predate the isDefault column
+    await backfillDefaultScores(lid)
+
+    // Step 3: Recalculate all handicaps (now that defaults are properly marked)
     await recalculateAllHandicaps(lid)
 
-    // Recalculate default score totals now that handicaps are updated
-    try {
-      await recalculateDefaultScores(lid)
-    } catch (defaultErr: any) {
-      console.warn('Could not recalculate default scores (column may not exist yet):', defaultErr?.message)
-    }
+    // Step 4: Recalculate default score totals with updated handicaps
+    await recalculateDefaultScores(lid)
 
     return NextResponse.json({ 
       message: 'Handicaps and default scores recalculated successfully',
