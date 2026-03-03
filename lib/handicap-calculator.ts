@@ -1151,13 +1151,11 @@ export async function ensureIsDefaultColumn(): Promise<void> {
 
 /**
  * Backfill old default scores that were created before the isDefault column existed.
- * Identifies them by: all 18 holes are the same value (evenly distributed artificial scores),
- * or all 18 holes are null while total is set.
- * Marks them isDefault=true and removes their raw handicap records.
+ * Only identifies scores where all 18 holes are null but total is set -- this is the
+ * signature of scores submitted via the new isDefault code path before the column existed.
+ * Never uses heuristics on hole values to avoid false positives on real scores.
  */
 export async function backfillDefaultScores(leagueId: number): Promise<void> {
-  console.log(`[backfillDefaultScores] Starting for league ${leagueId}`)
-
   const allScores = await prisma.score.findMany({
     where: {
       player: { leagueId },
@@ -1169,7 +1167,7 @@ export async function backfillDefaultScores(leagueId: number): Promise<void> {
   const toMark: number[] = []
 
   for (const s of allScores) {
-    if (s.isDefault) continue // already marked
+    if (s.isDefault) continue
 
     const holes = [
       s.hole1, s.hole2, s.hole3, s.hole4, s.hole5, s.hole6,
@@ -1178,35 +1176,22 @@ export async function backfillDefaultScores(leagueId: number): Promise<void> {
     ]
 
     const allNull = holes.every(h => h === null || h === undefined)
-    // Evenly distributed: all non-null holes within 1 stroke of each other (artificial pattern)
-    const nonNullHoles = holes.filter((h): h is number => h !== null && h !== undefined)
-    const allSame = nonNullHoles.length === 18 &&
-      (Math.max(...nonNullHoles) - Math.min(...nonNullHoles) <= 1)
-
-    if (allNull || allSame) {
+    if (allNull) {
       toMark.push(s.id)
     }
   }
 
-  if (toMark.length === 0) {
-    console.log(`[backfillDefaultScores] No old default scores to backfill`)
-    return
-  }
+  if (toMark.length === 0) return
 
   console.log(`[backfillDefaultScores] Marking ${toMark.length} scores as isDefault=true`)
 
-  // Mark them as default
   await prisma.score.updateMany({
     where: { id: { in: toMark } },
     data: { isDefault: true }
   })
 
-  // Remove raw handicap records for these scores so they stop polluting averages
   const markedScores = allScores.filter(s => toMark.includes(s.id))
-  const handicapDeletes: Array<{ playerId: number; weekId: number }> = []
-  for (const s of markedScores) {
-    handicapDeletes.push({ playerId: s.playerId, weekId: s.weekId })
-  }
+  const handicapDeletes = markedScores.map(s => ({ playerId: s.playerId, weekId: s.weekId }))
 
   if (handicapDeletes.length > 0) {
     const BATCH = 50
@@ -1222,18 +1207,6 @@ export async function backfillDefaultScores(leagueId: number): Promise<void> {
       )
     }
   }
-
-  // Also null-out hole data on these scores
-  await prisma.score.updateMany({
-    where: { id: { in: toMark } },
-    data: {
-      hole1: null, hole2: null, hole3: null, hole4: null, hole5: null, hole6: null,
-      hole7: null, hole8: null, hole9: null, hole10: null, hole11: null, hole12: null,
-      hole13: null, hole14: null, hole15: null, hole16: null, hole17: null, hole18: null
-    }
-  })
-
-  console.log(`[backfillDefaultScores] Completed for league ${leagueId}`)
 }
 
 /**
