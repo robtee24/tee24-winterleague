@@ -143,12 +143,9 @@ export async function calculateAppliedHandicap(
   }
   
   // Week 5+: Progressive average of all previous weeks' raw handicaps (strokes back from the lead)
-  // Week 5: average of weeks 1-4 raw handicaps
-  // Week 6: average of weeks 1-5 raw handicaps
-  // Week 7: average of weeks 1-6 raw handicaps
-  // etc.
-  // Progressive means each week uses ALL previous weeks' raw handicaps, not just a rolling window
-  const rawHandicaps = await getPlayerRawHandicaps(playerId, leagueId, weekNumber - 1)
+  // Weeks 11 and 12 both use the handicap from after round 10 (weeks 1-10)
+  const upToWeek = weekNumber >= 11 ? 10 : weekNumber - 1
+  const rawHandicaps = await getPlayerRawHandicaps(playerId, leagueId, upToWeek)
   if (rawHandicaps.length < 3) {
     return 0 // Not enough rounds yet
   }
@@ -183,7 +180,8 @@ export async function calculateBaselineHandicaps(leagueId: number): Promise<void
           weekNumber: { lte: 3 },
           isChampionship: false
         },
-        total: { not: null }
+        total: { not: null },
+        isDefault: false
       },
       include: { week: true }
     })
@@ -192,7 +190,7 @@ export async function calculateBaselineHandicaps(leagueId: number): Promise<void
   const weekIds = weeks1to3.map(w => w.id)
   const weekIdSet = new Set(weekIds)
   
-  // Group scores by player
+  // Group scores by player (excludes default scores)
   const scoresByPlayer = new Map<number, typeof allScores>()
   for (const score of allScores) {
     if (!scoresByPlayer.has(score.playerId)) {
@@ -507,15 +505,20 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
   }
   const scores = Array.from(playerScoreMap.values())
   
-  // Find round low (lowest score)
-  const roundLow = Math.min(...scores.map(s => s.total!))
+  // Filter out default scores for handicap calculations
+  const nonDefaultScores = scores.filter(s => !s.isDefault)
   
-  // Calculate and store raw handicaps for all players
-  // Use the weekId from each score to handle duplicate weeks
-  for (const score of scores) {
+  if (nonDefaultScores.length === 0) {
+    return // No real scores to process for handicaps
+  }
+  
+  // Find round low from non-default scores only
+  const roundLow = Math.min(...nonDefaultScores.map(s => s.total!))
+  
+  // Calculate and store raw handicaps only for non-default scores
+  for (const score of nonDefaultScores) {
     const rawHandicap = calculateRawHandicap(score.total!, roundLow)
     
-    // Use the weekId from the score itself (handles duplicate week records)
     await prisma.handicap.upsert({
       where: {
         playerId_weekId: {
@@ -719,6 +722,32 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
                 }
               })
               console.log(`  Successfully set handicap for player ${player.id} for week ${weekNumber + 1}`)
+              
+              // After round 10, use the same handicap for week 12 (and championship)
+              if (weekNumber === 10) {
+                const week12 = await prisma.week.findFirst({
+                  where: { leagueId, weekNumber: 12, isChampionship: false }
+                })
+                if (week12) {
+                  console.log(`  Also setting week 12 handicap for player ${player.id}: ${appliedHandicapForNextWeek}`)
+                  await prisma.handicap.upsert({
+                    where: { playerId_weekId: { playerId: player.id, weekId: week12.id } },
+                    update: { appliedHandicap: appliedHandicapForNextWeek, handicap: appliedHandicapForNextWeek },
+                    create: { playerId: player.id, weekId: week12.id, appliedHandicap: appliedHandicapForNextWeek, handicap: appliedHandicapForNextWeek }
+                  })
+                }
+                const championship = await prisma.week.findFirst({
+                  where: { leagueId, isChampionship: true }
+                })
+                if (championship) {
+                  console.log(`  Also setting championship handicap for player ${player.id}: ${appliedHandicapForNextWeek}`)
+                  await prisma.handicap.upsert({
+                    where: { playerId_weekId: { playerId: player.id, weekId: championship.id } },
+                    update: { appliedHandicap: appliedHandicapForNextWeek, handicap: appliedHandicapForNextWeek },
+                    create: { playerId: player.id, weekId: championship.id, appliedHandicap: appliedHandicapForNextWeek, handicap: appliedHandicapForNextWeek }
+                  })
+                }
+              }
             } else {
               console.log(`  Week ${weekNumber + 1} does not exist yet`)
             }
@@ -1147,9 +1176,14 @@ export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
     }
     
     const uniqueScores = Array.from(playerScoreMap.values())
-    const roundLow = Math.min(...uniqueScores.map(s => s.total!))
     
-    for (const score of uniqueScores) {
+    // Filter out default scores for handicap calculations
+    const nonDefaultScores = uniqueScores.filter(s => !s.isDefault)
+    if (nonDefaultScores.length === 0) continue
+    
+    const roundLow = Math.min(...nonDefaultScores.map(s => s.total!))
+    
+    for (const score of nonDefaultScores) {
       const rawHandicap = calculateRawHandicap(score.total!, roundLow)
       handicapUpdates.push({
         playerId: score.playerId,

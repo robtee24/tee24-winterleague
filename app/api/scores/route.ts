@@ -49,14 +49,16 @@ function extractActualHoleScores(score: any): (number | null)[] {
 
 /**
  * Get team scores for match play (excludes default scores)
- * If one player has no hole scores, use the teammate's scores
- * Returns arrays with null for holes that used default scores
+ * Default-score players contribute no hole data.
+ * If one player has real scores and the other is default/missing, only the real player's scores are used.
+ * If both players have default scores, returns empty arrays (forfeit).
  */
 function getTeamScoresForMatchPlay(player1Score: any, player2Score: any): (number | null)[][] {
-  const player1HasHoles = hasHoleScores(player1Score)
-  const player2HasHoles = hasHoleScores(player2Score)
+  const player1IsDefault = player1Score?.isDefault
+  const player2IsDefault = player2Score?.isDefault
+  const player1HasHoles = !player1IsDefault && hasHoleScores(player1Score)
+  const player2HasHoles = !player2IsDefault && hasHoleScores(player2Score)
 
-  // If both have hole scores, use both (only actual scores, not defaults)
   if (player1HasHoles && player2HasHoles) {
     return [
       extractActualHoleScores(player1Score),
@@ -64,20 +66,24 @@ function getTeamScoresForMatchPlay(player1Score: any, player2Score: any): (numbe
     ]
   }
 
-  // If only player1 has hole scores, use player1's scores for both
   if (player1HasHoles && !player2HasHoles) {
-    const player1Scores = extractActualHoleScores(player1Score)
-    return [player1Scores, player1Scores]
+    return [extractActualHoleScores(player1Score)]
   }
 
-  // If only player2 has hole scores, use player2's scores for both
   if (!player1HasHoles && player2HasHoles) {
-    const player2Scores = extractActualHoleScores(player2Score)
-    return [player2Scores, player2Scores]
+    return [extractActualHoleScores(player2Score)]
   }
 
-  // If neither has hole scores, return empty arrays (will be skipped)
   return [[], []]
+}
+
+/**
+ * Check if both players on a team have default scores (team forfeits)
+ */
+function isTeamForfeit(player1Score: any, player2Score: any): boolean {
+  const p1Default = !player1Score || player1Score.isDefault
+  const p2Default = !player2Score || player2Score.isDefault
+  return p1Default && p2Default
 }
 
 /**
@@ -284,23 +290,52 @@ async function calculateMatchesForWeek(weekId: number) {
       continue // Skip if team 2 has no scores
     }
 
+    // Check for forfeits (both players on a team have default scores)
+    const team1Forfeits = isTeamForfeit(team1Player1Score, team1Player2Score)
+    const team2Forfeits = isTeamForfeit(team2Player1Score, team2Player2Score)
+
+    if (team1Forfeits && team2Forfeits) {
+      console.log(`  Both teams forfeit match ${match.id} - 0-0 tie`)
+      await prisma.match.update({
+        where: { id: match.id },
+        data: { team1Points: 0, team2Points: 0, winnerId: null }
+      })
+      continue
+    }
+
+    if (team1Forfeits) {
+      console.log(`  Team 1 forfeits match ${match.id} - Team 2 wins 18-0`)
+      await prisma.match.update({
+        where: { id: match.id },
+        data: { team1Points: 0, team2Points: 18, winnerId: team2.id }
+      })
+      continue
+    }
+
+    if (team2Forfeits) {
+      console.log(`  Team 2 forfeits match ${match.id} - Team 1 wins 18-0`)
+      await prisma.match.update({
+        where: { id: match.id },
+        data: { team1Points: 18, team2Points: 0, winnerId: match.team1Id }
+      })
+      continue
+    }
+
     // Get team scores for match play (excludes default scores)
     const team1Scores = getTeamScoresForMatchPlay(team1Player1Score, team1Player2Score)
     const team2Scores = getTeamScoresForMatchPlay(team2Player1Score, team2Player2Score)
 
     console.log(`  Team1 scores: ${team1Scores.length} players, Team2 scores: ${team2Scores.length} players`)
-    console.log(`  Team1 has valid scores: ${team1Scores.length > 0 && team1Scores[0].length > 0 && team1Scores.some(s => s.some(h => h !== null))}`)
-    console.log(`  Team2 has valid scores: ${team2Scores.length > 0 && team2Scores[0].length > 0 && !team2Scores.every(s => s.every(h => h === 0))}`)
 
     // Check if we have valid scores for both teams
     if (team1Scores.length === 0 || team1Scores[0].length === 0 || team1Scores.every(s => s.every(h => h === 0))) {
       console.log(`  Skipping match ${match.id} - Team 1 has no valid hole-by-hole scores`)
-      continue // Skip if team 1 has no hole-by-hole scores
+      continue
     }
 
     if (team2Scores.length === 0 || team2Scores[0].length === 0 || team2Scores.every(s => s.every(h => h === 0))) {
       console.log(`  Skipping match ${match.id} - Team 2 has no valid hole-by-hole scores`)
-      continue // Skip if team 2 has no hole-by-hole scores
+      continue
     }
 
     // Calculate match play points
@@ -338,7 +373,7 @@ export async function POST(request: Request) {
   
   try {
     const data = await request.json()
-    const { playerId, weekId, scores, scorecardImage } = data
+    const { playerId, weekId, scores, scorecardImage, isDefault } = data
 
     console.log(`[${requestId}] SCORE_SUBMISSION_START:`, {
       timestamp: new Date().toISOString(),
@@ -447,6 +482,20 @@ export async function POST(request: Request) {
     
     console.log('Calculated values:', { front9, back9, total, appliedHandicap, weightedScore })
 
+    // For default scores, null-out all hole data
+    const holeData = isDefault ? {
+      hole1: null, hole2: null, hole3: null, hole4: null, hole5: null, hole6: null,
+      hole7: null, hole8: null, hole9: null, hole10: null, hole11: null, hole12: null,
+      hole13: null, hole14: null, hole15: null, hole16: null, hole17: null, hole18: null,
+    } : {
+      hole1: numericScores[0] || null, hole2: numericScores[1] || null, hole3: numericScores[2] || null,
+      hole4: numericScores[3] || null, hole5: numericScores[4] || null, hole6: numericScores[5] || null,
+      hole7: numericScores[6] || null, hole8: numericScores[7] || null, hole9: numericScores[8] || null,
+      hole10: numericScores[9] || null, hole11: numericScores[10] || null, hole12: numericScores[11] || null,
+      hole13: numericScores[12] || null, hole14: numericScores[13] || null, hole15: numericScores[14] || null,
+      hole16: numericScores[15] || null, hole17: numericScores[16] || null, hole18: numericScores[17] || null,
+    }
+
     // Check if a score already exists for this player/week combination
     // Handle duplicate weeks by finding the most recent score for this weekNumber
     const existingScores = await prisma.score.findMany({
@@ -469,29 +518,13 @@ export async function POST(request: Request) {
       score = await prisma.score.update({
         where: { id: existingScores[0].id },
         data: {
-          hole1: numericScores[0] || null,
-          hole2: numericScores[1] || null,
-          hole3: numericScores[2] || null,
-          hole4: numericScores[3] || null,
-          hole5: numericScores[4] || null,
-          hole6: numericScores[5] || null,
-          hole7: numericScores[6] || null,
-          hole8: numericScores[7] || null,
-          hole9: numericScores[8] || null,
-          hole10: numericScores[9] || null,
-          hole11: numericScores[10] || null,
-          hole12: numericScores[11] || null,
-          hole13: numericScores[12] || null,
-          hole14: numericScores[13] || null,
-          hole15: numericScores[14] || null,
-          hole16: numericScores[15] || null,
-          hole17: numericScores[16] || null,
-          hole18: numericScores[17] || null,
+          ...holeData,
           front9,
           back9,
           total,
           weightedScore,
-          scorecardImage: scorecardImage !== undefined ? scorecardImage : existingScores[0].scorecardImage // Preserve existing image if not provided
+          isDefault: !!isDefault,
+          scorecardImage: scorecardImage !== undefined ? scorecardImage : existingScores[0].scorecardImage
         }
       })
       
@@ -512,7 +545,8 @@ export async function POST(request: Request) {
         front9,
         back9,
         total,
-        weightedScore
+        weightedScore,
+        isDefault: !!isDefault
       })
       
       try {
@@ -520,28 +554,12 @@ export async function POST(request: Request) {
           data: {
             playerId: parseInt(playerId),
             weekId: parseInt(weekId),
-            hole1: numericScores[0] || null,
-            hole2: numericScores[1] || null,
-            hole3: numericScores[2] || null,
-            hole4: numericScores[3] || null,
-            hole5: numericScores[4] || null,
-            hole6: numericScores[5] || null,
-            hole7: numericScores[6] || null,
-            hole8: numericScores[7] || null,
-            hole9: numericScores[8] || null,
-            hole10: numericScores[9] || null,
-            hole11: numericScores[10] || null,
-            hole12: numericScores[11] || null,
-            hole13: numericScores[12] || null,
-            hole14: numericScores[13] || null,
-            hole15: numericScores[14] || null,
-            hole16: numericScores[15] || null,
-            hole17: numericScores[16] || null,
-            hole18: numericScores[17] || null,
+            ...holeData,
             front9,
             back9,
             total,
             weightedScore,
+            isDefault: !!isDefault,
             scorecardImage: scorecardImage || null
           }
         })
@@ -550,7 +568,7 @@ export async function POST(request: Request) {
         console.error('Prisma create error:', createError)
         console.error('Error code:', createError?.code)
         console.error('Error meta:', createError?.meta)
-        throw createError // Re-throw to be caught by outer catch
+        throw createError
       }
     }
 
@@ -611,9 +629,8 @@ export async function POST(request: Request) {
           // If this is week 4 or later, calculate handicaps for next week
           // (Weeks 1-4 don't use progressive handicaps until after week 3)
           // Note: recalculateAllHandicaps already handles this, but we ensure next week's applied handicaps are set
-          if (week.weekNumber >= 4 && !week.isChampionship && week.weekNumber < 12) {
+          if (week.weekNumber >= 4 && !week.isChampionship) {
             const nextWeekNumber = week.weekNumber + 1
-            // Find the next week
             const nextWeek = await prisma.week.findFirst({
               where: {
                 leagueId: week.leagueId,
@@ -623,7 +640,6 @@ export async function POST(request: Request) {
             })
 
             if (nextWeek) {
-              // Calculate applied handicaps for next week
               for (const player of allPlayers) {
                 try {
                   await calculateAppliedHandicap(player.id, week.leagueId, nextWeekNumber)
@@ -632,6 +648,23 @@ export async function POST(request: Request) {
                 }
               }
               console.log(`Calculated handicaps for week ${nextWeekNumber}`)
+            }
+
+            // After round 10, also set handicap for week 12 (same as week 11)
+            if (week.weekNumber === 10) {
+              const week12 = await prisma.week.findFirst({
+                where: { leagueId: week.leagueId, weekNumber: 12, isChampionship: false }
+              })
+              if (week12) {
+                for (const player of allPlayers) {
+                  try {
+                    await calculateAppliedHandicap(player.id, week.leagueId, 12)
+                  } catch (error) {
+                    console.error(`Error calculating handicap for player ${player.id} for week 12:`, error)
+                  }
+                }
+                console.log(`Calculated handicaps for week 12 (same as week 11)`)
+              }
             }
           }
         } else {

@@ -1162,12 +1162,12 @@ export default function PlayerPage() {
                       if (!editingScore || !leagueId) return
 
                       try {
-                        // Calculate default score: roundLow + player's progressive handicap
-                        // Get all scores for this week to find round low
+                        // Calculate default score: roundLow + player's handicap + 5 strokes
                         const weekScores = allLeagueScores.filter(s => 
                           s.week.weekNumber === editingScore.week.weekNumber &&
                           s.total !== null && 
-                          s.total !== undefined
+                          s.total !== undefined &&
+                          !(s as any).isDefault
                         )
                         
                         if (weekScores.length === 0) {
@@ -1178,20 +1178,18 @@ export default function PlayerPage() {
                         const roundLow = Math.min(...weekScores.map(s => s.total!))
                         const week = weeks.find(w => w.weekNumber === editingScore.week.weekNumber)
                         const playerHandicap = week ? getHandicapForWeek(week.id) : 0
-                        const defaultTotal = roundLow + playerHandicap
+                        const defaultTotal = roundLow + playerHandicap + 5
 
-                        // Distribute the total across 18 holes (roughly equal)
+                        // Distribute total across 18 holes for API total calculation
+                        // The API will null-out hole data since isDefault=true
                         const avgPerHole = Math.round(defaultTotal / 18)
                         const defaultScores = Array.from({ length: 18 }, () => avgPerHole)
-                        
-                        // Adjust to make total exact
                         const currentTotal = defaultScores.reduce((a, b) => a + b, 0)
                         const difference = defaultTotal - currentTotal
                         if (difference !== 0) {
                           defaultScores[17] += difference
                         }
 
-                        // Create score with default values
                         const createRes = await fetch('/api/scores', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
@@ -1199,7 +1197,8 @@ export default function PlayerPage() {
                             playerId: editingScore.playerId,
                             weekId: editingScore.weekId,
                             scores: defaultScores,
-                            scorecardImage: null
+                            scorecardImage: null,
+                            isDefault: true
                           })
                         })
                         
@@ -1210,7 +1209,7 @@ export default function PlayerPage() {
 
                         setEditingScore(null)
                         loadData()
-                        alert(`Default score submitted: ${defaultTotal} (Round Low: ${roundLow} + Handicap: ${playerHandicap})`)
+                        alert(`Default score submitted: ${defaultTotal} (Round Low: ${roundLow} + Handicap: ${playerHandicap} + 5)`)
                       } catch (error: any) {
                         console.error('Error submitting default score:', error)
                         alert(`Failed to submit default score: ${error.message || 'Unknown error'}`)

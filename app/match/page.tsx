@@ -58,6 +58,7 @@ interface Score {
   hole17: number | null
   hole18: number | null
   total: number | null
+  isDefault: boolean
   week: {
     id: number
     weekNumber: number
@@ -182,8 +183,12 @@ function MatchPageContent() {
       .catch(err => console.error('Error loading match data:', err))
   }
 
+  const isPlayerDefault = (score: Score | null): boolean => {
+    return !!score?.isDefault
+  }
+
   const getHoleScore = (score: Score | null, hole: number): number | null => {
-    if (!score) return null
+    if (!score || score.isDefault) return null
     return score[`hole${hole}` as keyof Score] as number | null
   }
 
@@ -195,6 +200,13 @@ function MatchPageContent() {
     if (player1Score === null) return player2Score
     if (player2Score === null) return player1Score
     return Math.min(player1Score, player2Score)
+  }
+
+  const getHoleDisplay = (score: Score | null, hole: number): string => {
+    if (!score) return '-'
+    if (score.isDefault) return '-'
+    const val = score[`hole${hole}` as keyof Score] as number | null
+    return val !== null && val !== undefined ? String(val) : '-'
   }
 
   if (!match) return <div>Loading...</div>
@@ -298,17 +310,29 @@ function MatchPageContent() {
                       <th className="border border-gray-300 px-2 py-1"></th>
                       <th className="border border-gray-300 px-2 py-1 text-sm">
                         {match.team1.player1.firstName}
+                        {isPlayerDefault(team1Scores.player1) && (
+                          <span className="block text-xs text-orange-500 font-normal">Default</span>
+                        )}
                       </th>
                       <th className="border border-gray-300 px-2 py-1 text-sm">
                         {match.team1.player2.firstName}
+                        {isPlayerDefault(team1Scores.player2) && (
+                          <span className="block text-xs text-orange-500 font-normal">Default</span>
+                        )}
                       </th>
                       <th className="border border-gray-300 px-2 py-1"></th>
                       <th className="border border-gray-300 px-2 py-1"></th>
                       <th className="border border-gray-300 px-2 py-1 text-sm">
                         {match.team2.player1.firstName}
+                        {isPlayerDefault(team2Scores.player1) && (
+                          <span className="block text-xs text-orange-500 font-normal">Default</span>
+                        )}
                       </th>
                       <th className="border border-gray-300 px-2 py-1 text-sm">
                         {match.team2.player2.firstName}
+                        {isPlayerDefault(team2Scores.player2) && (
+                          <span className="block text-xs text-orange-500 font-normal">Default</span>
+                        )}
                       </th>
                     </tr>
                   </thead>
@@ -327,10 +351,10 @@ function MatchPageContent() {
                           {hole}
                         </td>
                         <td className={`border border-gray-300 px-2 py-2 text-center ${team1Won ? 'bg-blue-200' : ''}`}>
-                          {getHoleScore(team1Scores.player1, hole) || '-'}
+                          {getHoleDisplay(team1Scores.player1, hole)}
                         </td>
                         <td className={`border border-gray-300 px-2 py-2 text-center ${team1Won ? 'bg-blue-200' : ''}`}>
-                          {getHoleScore(team1Scores.player2, hole) || '-'}
+                          {getHoleDisplay(team1Scores.player2, hole)}
                         </td>
                         <td className={`border border-gray-300 px-2 py-2 text-center font-semibold ${team1Won ? 'bg-blue-200' : ''}`}>
                           {team1Low !== null ? team1Low : '-'}
@@ -339,10 +363,10 @@ function MatchPageContent() {
                           {team2Low !== null ? team2Low : '-'}
                         </td>
                         <td className={`border border-gray-300 px-2 py-2 text-center ${team2Won ? 'bg-green-200' : ''}`}>
-                          {getHoleScore(team2Scores.player1, hole) || '-'}
+                          {getHoleDisplay(team2Scores.player1, hole)}
                         </td>
                         <td className={`border border-gray-300 px-2 py-2 text-center ${team2Won ? 'bg-green-200' : ''}`}>
-                          {getHoleScore(team2Scores.player2, hole) || '-'}
+                          {getHoleDisplay(team2Scores.player2, hole)}
                         </td>
                       </tr>
                     )

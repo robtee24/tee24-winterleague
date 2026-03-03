@@ -105,6 +105,7 @@ model Score {
   back9          Int?
   total          Int?
   weightedScore  Float?
+  isDefault      Boolean  @default(false)
   scorecardImage String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

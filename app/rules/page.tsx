@@ -64,6 +64,8 @@ export default function RulesPage() {
                   <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
                     <li>Established after the first <strong>3 rounds</strong>.</li>
                     <li>No winners will be announced for the first 3 rounds until all three have been completed.</li>
+                    <li>Handicaps are recalculated after each completed round for the following round.</li>
+                    <li>The handicap after <strong>round 10</strong> is used for both <strong>rounds 11 and 12</strong>.</li>
                   </ul>
                 </li>
                 <li>
@@ -105,7 +107,9 @@ export default function RulesPage() {
                   <strong>Score Submission:</strong>
                   <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
                     <li>All scores are due by <strong>Sunday at 11:59 PM each week.</strong></li>
-                    <li>Late submissions receive a <strong>default score = handicap + 5 strokes.</strong></li>
+                    <li>Late submissions receive a <strong>default score = expected handicapped score + 5 strokes</strong> (round low + handicap + 5).</li>
+                    <li>Default scores <strong>do not count</strong> toward handicap calculations.</li>
+                    <li>In team play, default scores have <strong>no individual hole scoring</strong>. Only the partner who played contributes hole scores. If both partners have default scores, the team forfeits the match.</li>
                   </ul>
                 </li>
               </ul>
