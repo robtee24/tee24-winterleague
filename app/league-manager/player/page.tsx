@@ -97,6 +97,7 @@ export default function PlayerPage() {
   }>>([])
   const [showAddTeamMember, setShowAddTeamMember] = useState(false)
   const [selectedTeamMember, setSelectedTeamMember] = useState<string>('')
+  const [fillingDefaults, setFillingDefaults] = useState(false)
 
   useEffect(() => {
     if (!playerId || !leagueId) {
@@ -159,6 +160,88 @@ export default function PlayerPage() {
       .then(res => res.json())
       .then(data => setTeams(data))
       .catch(err => console.error('Error fetching teams:', err))
+  }
+
+  const fillMissingDefaults = async () => {
+    if (!playerId || !leagueId) return
+
+    const missingWeeks: number[] = []
+    for (let w = 1; w <= 10; w++) {
+      const hasScore = scores.some(s => s.week.weekNumber === w && !s.week.isChampionship)
+      if (!hasScore) missingWeeks.push(w)
+    }
+
+    if (missingWeeks.length === 0) {
+      alert('No missing scores for weeks 1-10.')
+      return
+    }
+
+    if (!confirm(`This will submit default scores for weeks: ${missingWeeks.join(', ')}. Continue?`)) {
+      return
+    }
+
+    setFillingDefaults(true)
+    let submitted = 0
+    const errors: string[] = []
+
+    for (const weekNum of missingWeeks) {
+      try {
+        const week = weeks.find(w => w.weekNumber === weekNum && !w.isChampionship)
+        if (!week) {
+          errors.push(`Week ${weekNum}: not found`)
+          continue
+        }
+
+        const weekScores = allLeagueScores.filter(s =>
+          s.week.weekNumber === weekNum &&
+          !s.week.isChampionship &&
+          s.total !== null &&
+          !(s as any).isDefault
+        )
+
+        if (weekScores.length === 0) {
+          errors.push(`Week ${weekNum}: no real scores to calculate round low`)
+          continue
+        }
+
+        const roundLow = Math.min(...weekScores.map(s => s.total!))
+        const playerHandicap = getHandicapForWeek(week.id)
+        const defaultTotal = roundLow + playerHandicap + 5
+
+        const avgPerHole = Math.round(defaultTotal / 18)
+        const defaultScores = Array.from({ length: 18 }, () => avgPerHole)
+        const diff = defaultTotal - defaultScores.reduce((a, b) => a + b, 0)
+        if (diff !== 0) defaultScores[17] += diff
+
+        const res = await fetch('/api/scores', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            playerId: parseInt(playerId),
+            weekId: week.id,
+            scores: defaultScores,
+            scorecardImage: null,
+            isDefault: true
+          })
+        })
+
+        if (!res.ok) {
+          const err = await res.json()
+          errors.push(`Week ${weekNum}: ${err.error || 'failed'}`)
+        } else {
+          submitted++
+        }
+      } catch (err: any) {
+        errors.push(`Week ${weekNum}: ${err.message || 'unknown error'}`)
+      }
+    }
+
+    setFillingDefaults(false)
+    loadData()
+
+    let msg = `Submitted ${submitted} default score${submitted !== 1 ? 's' : ''}.`
+    if (errors.length > 0) msg += `\n\nErrors:\n${errors.join('\n')}`
+    alert(msg)
   }
 
   const handleHandicapSave = async (weekId: number) => {
@@ -790,7 +873,16 @@ export default function PlayerPage() {
 
         {/* Scores Table */}
         <div className="bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Scores by Week</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Scores by Week</h2>
+            <button
+              onClick={fillMissingDefaults}
+              disabled={fillingDefaults}
+              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 text-sm"
+            >
+              {fillingDefaults ? 'Submitting...' : 'Fill Missing Default Scores (Wks 1-10)'}
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
