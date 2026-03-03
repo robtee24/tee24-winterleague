@@ -568,8 +568,8 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
         console.log(`[processCompletedRound] Week 4 completed - Player ${player.id} (${player.firstName}): Retrieving raw handicaps for Week 5`)
         console.log(`[processCompletedRound] Raw handicaps found: ${rawHandicapsForWeek5.length} values: [${rawHandicapsForWeek5.join(', ')}]`)
         
-        if (rawHandicapsForWeek5.length >= 4) {
-          // Calculate progressive average: average of weeks 1-4 raw handicaps
+        if (rawHandicapsForWeek5.length >= 3) {
+          // Calculate progressive average: average of available raw handicaps from weeks 1-4
           const appliedHandicapForWeek5 = calculateAverage(rawHandicapsForWeek5)
           
           console.log(`[processCompletedRound] Player ${player.id} (${player.firstName}): Calculating Week 5 handicap = ${appliedHandicapForWeek5} (progressive average of weeks 1-4: ${rawHandicapsForWeek5.join(', ')})`)
@@ -636,10 +636,9 @@ export async function processCompletedRound(leagueId: number, weekNumber: number
         
         console.log(`Player ${player.id} (${player.firstName}): ${rawHandicapsForCurrentWeek.length} raw handicaps for week ${weekNumber} (using weeks 1-${weekNumber - 1})`)
         
-        // Week 5 needs exactly 4 raw handicaps (weeks 1-4), Week 6+ needs (weekNumber - 1) raw handicaps
-        const minRequiredForCurrent = weekNumber === 5 ? 4 : weekNumber - 1
-        
-        if (rawHandicapsForCurrentWeek.length >= minRequiredForCurrent) {
+        // Need at least 3 raw handicaps (baseline rounds) to calculate progressive average.
+        // Players with default scores may have fewer raw handicaps than the week count.
+        if (rawHandicapsForCurrentWeek.length >= 3) {
           // Calculate progressive average: average of all previous weeks' raw handicaps
           const appliedHandicapForCurrentWeek = calculateAverage(rawHandicapsForCurrentWeek)
           
@@ -969,13 +968,14 @@ export async function recalculateProgressiveHandicaps(
           .map(weekNum => playerRawHandicaps.get(weekNum))
           .filter((h): h is number => h !== undefined)
         
-        // For Week 5, we need exactly 4 raw handicaps (weeks 1-4)
-        // For Week 6+, we need at least (w-1) raw handicaps (all previous weeks)
-        const minRequired = w === 5 ? 4 : w - 1
+        // Need at least 3 raw handicaps (the baseline rounds) to calculate a progressive average.
+        // Players with default scores will have fewer raw handicaps than the week count,
+        // but their handicap should still be the average of whatever non-default rounds exist.
+        const minRequired = 3
         
         console.log(`[recalculateProgressiveHandicaps] Week ${w}, Player ${player.id}: Processing progressive handicap calculation`)
         console.log(`[recalculateProgressiveHandicaps] Raw handicaps retrieved: ${rawHandicaps.length} values: [${rawHandicaps.join(', ')}]`)
-        console.log(`[recalculateProgressiveHandicaps] Minimum required: ${minRequired} (need weeks 1-${w-1})`)
+        console.log(`[recalculateProgressiveHandicaps] Minimum required: ${minRequired}`)
         
         if (rawHandicaps.length >= minRequired) {
           // Calculate progressive average: average of all previous weeks' raw handicaps
@@ -1228,39 +1228,22 @@ export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
     await calculateBaselineHandicaps(leagueId)
   }
   
-  // Recalculate progressive handicaps for all completed weeks (optimized)
-  const maxWeekNumber = Math.max(...weeks.map(w => w.weekNumber), 0)
-  if (maxWeekNumber >= 4) {
-    console.log(`[recalculateAllHandicaps] Recalculating progressive handicaps up to week ${maxWeekNumber}`)
-    // Process weeks in batches to avoid timeout
-    const completedWeeks = weeks.filter(w => weekCompleteCache.get(w.weekNumber))
-    
-    // Process each completed week
-    // Important: When Week 4 is complete, we need to process up to Week 5 (not just Week 4)
-    // because Week 5's handicap depends on Week 4 being complete
-    for (const week of completedWeeks) {
-      const weekNum = week.weekNumber
-      if (weekNum === 4) {
-        // When Week 4 is complete, process up to Week 5 to set Week 5's handicap
-        console.log(`[recalculateAllHandicaps] Week 4 complete, processing up to Week 5`)
-        await recalculateProgressiveHandicaps(leagueId, 5, false) // Process up to Week 5, not just Week 4
-      } else if (weekNum >= 5) {
-        // For Week 5+, process up to that week number
-        await recalculateProgressiveHandicaps(leagueId, weekNum, false)
-      } else {
-        // For weeks 1-3, process up to that week number
-        await recalculateProgressiveHandicaps(leagueId, weekNum, false)
-      }
-    }
-    
-    // Also explicitly process Week 5 if Week 4 is complete but Week 5 wasn't in the completed weeks list
-    if (maxWeekNumber >= 5 && weekCompleteCache.get(4)) {
-      const week5Completed = weekCompleteCache.get(5)
-      if (!week5Completed) {
-        // Week 4 is complete but Week 5 hasn't started yet - still need to set Week 5's handicap
-        console.log(`[recalculateAllHandicaps] Week 4 complete, Week 5 not started yet - processing Week 5 handicap`)
-        await recalculateProgressiveHandicaps(leagueId, 5, false)
-      }
+  // Recalculate progressive handicaps for all completed weeks AND the next week
+  const completedWeeks = weeks.filter(w => weekCompleteCache.get(w.weekNumber))
+  const maxCompletedWeek = completedWeeks.length > 0
+    ? Math.max(...completedWeeks.map(w => w.weekNumber))
+    : 0
+
+  if (maxCompletedWeek >= 3) {
+    // Process up to maxCompletedWeek + 1 so the NEXT week's handicap gets set
+    const processUpTo = maxCompletedWeek + 1
+    console.log(`[recalculateAllHandicaps] Recalculating progressive handicaps up to week ${processUpTo} (max completed: ${maxCompletedWeek})`)
+    await recalculateProgressiveHandicaps(leagueId, processUpTo, false)
+
+    // After round 10, also set handicap for week 12 (same as week 11)
+    if (maxCompletedWeek >= 10) {
+      console.log(`[recalculateAllHandicaps] Also processing week 12 (uses round 10 handicap)`)
+      await recalculateProgressiveHandicaps(leagueId, 12, false)
     }
   }
   
