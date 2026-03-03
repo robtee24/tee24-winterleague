@@ -897,140 +897,139 @@ export async function recalculateProgressiveHandicaps(
  * Useful for fixing data or after manual edits
  * Optimized for large leagues by batching operations
  */
-export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
-  console.log(`[recalculateAllHandicaps] Starting for league ${leagueId}`)
-  
-  // Fetch all data upfront to reduce queries
+/**
+ * Step 2: Calculate raw handicaps for all completed weeks in a league.
+ * Extracted from recalculateAllHandicaps so it can be called as a standalone step.
+ */
+export async function calculateRawHandicapsForLeague(leagueId: number): Promise<void> {
+  console.log(`[calculateRawHandicapsForLeague] Starting for league ${leagueId}`)
+
   const [weeks, players, allScores] = await Promise.all([
     prisma.week.findMany({
-      where: {
-        leagueId,
-        isChampionship: false
-      },
-      orderBy: {
-        weekNumber: 'asc'
-      }
+      where: { leagueId, isChampionship: false },
+      orderBy: { weekNumber: 'asc' }
     }),
-    prisma.player.findMany({
-      where: { leagueId }
-    }),
+    prisma.player.findMany({ where: { leagueId } }),
     prisma.score.findMany({
-      where: {
-        player: { leagueId },
-        total: { not: null }
-      },
-      include: {
-        player: true,
-        week: true
-      }
+      where: { player: { leagueId }, total: { not: null } },
+      include: { player: true, week: true }
     })
   ])
-  
-  console.log(`[recalculateAllHandicaps] Found ${weeks.length} weeks, ${players.length} players, ${allScores.length} scores`)
-  
-  // Cache which weeks are complete (check once per week)
-  const weekCompleteCache = new Map<number, boolean>()
+
   const playerCount = players.length
-  
-  // Group scores by week
   const scoresByWeek = new Map<number, typeof allScores>()
   for (const score of allScores) {
     const weekNum = score.week.weekNumber
-    if (!scoresByWeek.has(weekNum)) {
-      scoresByWeek.set(weekNum, [])
-    }
+    if (!scoresByWeek.has(weekNum)) scoresByWeek.set(weekNum, [])
     scoresByWeek.get(weekNum)!.push(score)
   }
-  
-  // Check which weeks are complete (all players submitted)
+
+  const handicapUpdates: Array<{ playerId: number; weekId: number; rawHandicap: number }> = []
+
   for (const week of weeks) {
     const weekScores = scoresByWeek.get(week.weekNumber) || []
     const uniquePlayers = new Set(weekScores.map(s => s.playerId))
-    weekCompleteCache.set(week.weekNumber, uniquePlayers.size === playerCount && playerCount > 0)
-  }
-  
-  // Batch update raw handicaps for all completed weeks
-  const handicapUpdates: Array<{
-    playerId: number
-    weekId: number
-    rawHandicap: number
-  }> = []
-  
-  for (const week of weeks) {
-    const isComplete = weekCompleteCache.get(week.weekNumber)
-    if (!isComplete) continue
-    
-    const weekScores = scoresByWeek.get(week.weekNumber) || []
+    if (uniquePlayers.size !== playerCount || playerCount === 0) continue
     if (weekScores.length === 0) continue
-    
-    // Deduplicate scores (keep most recent per player)
+
     const playerScoreMap = new Map<number, typeof weekScores[0]>()
     for (const score of weekScores) {
       const existing = playerScoreMap.get(score.playerId)
-      if (!existing || score.id > existing.id) {
-        playerScoreMap.set(score.playerId, score)
-      }
+      if (!existing || score.id > existing.id) playerScoreMap.set(score.playerId, score)
     }
-    
-    const uniqueScores = Array.from(playerScoreMap.values())
-    
-    // Filter out default scores for handicap calculations
-    const nonDefaultScores = uniqueScores.filter(s => !s.isDefault)
+
+    const nonDefaultScores = Array.from(playerScoreMap.values()).filter(s => !s.isDefault)
     if (nonDefaultScores.length === 0) continue
-    
+
     const roundLow = Math.min(...nonDefaultScores.map(s => s.total!))
-    
     for (const score of nonDefaultScores) {
-      const rawHandicap = calculateRawHandicap(score.total!, roundLow)
       handicapUpdates.push({
         playerId: score.playerId,
         weekId: week.id,
-        rawHandicap
+        rawHandicap: calculateRawHandicap(score.total!, roundLow)
       })
     }
   }
-  
-  console.log(`[recalculateAllHandicaps] Updating ${handicapUpdates.length} raw handicaps`)
+
+  console.log(`[calculateRawHandicapsForLeague] Upserting ${handicapUpdates.length} raw handicaps`)
   const BATCH_SIZE = 50
   for (let i = 0; i < handicapUpdates.length; i += BATCH_SIZE) {
     const batch = handicapUpdates.slice(i, i + BATCH_SIZE)
     await Promise.all(
-      batch.map(update =>
+      batch.map(u =>
         prisma.handicap.upsert({
-          where: { playerId_weekId: { playerId: update.playerId, weekId: update.weekId } },
-          update: { rawHandicap: update.rawHandicap },
-          create: { playerId: update.playerId, weekId: update.weekId, rawHandicap: update.rawHandicap }
+          where: { playerId_weekId: { playerId: u.playerId, weekId: u.weekId } },
+          update: { rawHandicap: u.rawHandicap },
+          create: { playerId: u.playerId, weekId: u.weekId, rawHandicap: u.rawHandicap }
         })
       )
     )
   }
-  
-  // Calculate baselines if we have at least 3 completed rounds
-  const week3Complete = weekCompleteCache.get(3)
+  console.log(`[calculateRawHandicapsForLeague] Completed`)
+}
+
+/**
+ * Step 3: Calculate baseline + progressive handicaps for a league.
+ * Determines which weeks are complete and processes accordingly.
+ */
+export async function calculateAllProgressiveForLeague(leagueId: number): Promise<void> {
+  console.log(`[calculateAllProgressiveForLeague] Starting for league ${leagueId}`)
+
+  const [weeks, players, allScores] = await Promise.all([
+    prisma.week.findMany({
+      where: { leagueId, isChampionship: false },
+      orderBy: { weekNumber: 'asc' }
+    }),
+    prisma.player.findMany({ where: { leagueId } }),
+    prisma.score.findMany({
+      where: { player: { leagueId }, total: { not: null } },
+      select: { playerId: true, weekId: true, week: { select: { weekNumber: true } } }
+    })
+  ])
+
+  const playerCount = players.length
+  const scoresByWeek = new Map<number, Set<number>>()
+  for (const s of allScores) {
+    if (!scoresByWeek.has(s.week.weekNumber)) scoresByWeek.set(s.week.weekNumber, new Set())
+    scoresByWeek.get(s.week.weekNumber)!.add(s.playerId)
+  }
+
+  let maxCompletedWeek = 0
+  for (const week of weeks) {
+    const uniquePlayers = scoresByWeek.get(week.weekNumber)
+    if (uniquePlayers && uniquePlayers.size === playerCount && playerCount > 0) {
+      maxCompletedWeek = Math.max(maxCompletedWeek, week.weekNumber)
+    }
+  }
+
+  const week3Players = scoresByWeek.get(3)
+  const week3Complete = week3Players && week3Players.size === playerCount && playerCount > 0
+
   if (week3Complete) {
     await calculateBaselineHandicaps(leagueId)
   }
-  
-  // Recalculate progressive handicaps for all completed weeks AND the next week
-  const completedWeeks = weeks.filter(w => weekCompleteCache.get(w.weekNumber))
-  const maxCompletedWeek = completedWeeks.length > 0
-    ? Math.max(...completedWeeks.map(w => w.weekNumber))
-    : 0
 
   if (maxCompletedWeek >= 3) {
-    // Process up to maxCompletedWeek + 1 so the NEXT week's handicap gets set
     const processUpTo = maxCompletedWeek + 1
-    console.log(`[recalculateAllHandicaps] Recalculating progressive handicaps up to week ${processUpTo} (max completed: ${maxCompletedWeek})`)
+    console.log(`[calculateAllProgressiveForLeague] Progressive handicaps up to week ${processUpTo}`)
     await recalculateProgressiveHandicaps(leagueId, processUpTo, false)
 
-    // After round 10, also set handicap for week 12 (same as week 11)
     if (maxCompletedWeek >= 10) {
-      console.log(`[recalculateAllHandicaps] Also processing week 12 (uses round 10 handicap)`)
+      console.log(`[calculateAllProgressiveForLeague] Also processing week 12`)
       await recalculateProgressiveHandicaps(leagueId, 12, false)
     }
   }
-  
-  // Ensure all scores have weighted scores calculated (optimized)
+  console.log(`[calculateAllProgressiveForLeague] Completed`)
+}
+
+/**
+ * Full recalculate (used by non-default score submissions).
+ * Calls all sub-steps in sequence.
+ */
+export async function recalculateAllHandicaps(leagueId: number): Promise<void> {
+  console.log(`[recalculateAllHandicaps] Starting for league ${leagueId}`)
+  await calculateRawHandicapsForLeague(leagueId)
+  await calculateAllProgressiveForLeague(leagueId)
   await ensureAllWeightedScores(leagueId)
   console.log(`[recalculateAllHandicaps] Completed for league ${leagueId}`)
 }

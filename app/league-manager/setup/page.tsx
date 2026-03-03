@@ -70,6 +70,7 @@ export default function LeagueSetupPage() {
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null)
   const [selectedOpponent, setSelectedOpponent] = useState<string>('')
   const [recalculating, setRecalculating] = useState(false)
+  const [recalcProgress, setRecalcProgress] = useState<{ current: number; total: number; message: string } | null>(null)
   const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
@@ -491,31 +492,53 @@ export default function LeagueSetupPage() {
   const handleRecalculateHandicaps = async () => {
     if (!leagueId) return
 
-    if (!confirm('This will recalculate all handicaps for this league. This may take a moment. Continue?')) {
+    if (!confirm('This will recalculate all handicaps for this league. Continue?')) {
       return
     }
 
+    const steps = [
+      { step: 1, label: 'Verifying database schema...' },
+      { step: 2, label: 'Calculating raw handicaps...' },
+      { step: 3, label: 'Calculating progressive handicaps...' },
+      { step: 4, label: 'Updating weighted scores...' },
+      { step: 5, label: 'Updating default score totals...' },
+    ]
+
     setRecalculating(true)
+    setRecalcProgress({ current: 0, total: steps.length, message: 'Starting...' })
+
     try {
-      const response = await fetch(`/api/handicaps/recalculate?leagueId=${leagueId}`, {
-        method: 'POST'
-      })
+      for (const s of steps) {
+        setRecalcProgress({ current: s.step - 1, total: steps.length, message: s.label })
 
-      const data = await response.json()
+        const response = await fetch(
+          `/api/handicaps/recalculate?leagueId=${leagueId}&step=${s.step}`,
+          { method: 'POST' }
+        )
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to recalculate handicaps')
+        let data: any
+        const contentType = response.headers.get('content-type') || ''
+        if (contentType.includes('application/json')) {
+          data = await response.json()
+        } else {
+          await response.text()
+          throw new Error(`Server error on step ${s.step} (${s.label}). Please try again.`)
+        }
+
+        if (!response.ok) {
+          throw new Error(data?.error || `Failed at step ${s.step}: ${s.label}`)
+        }
       }
 
-      alert('Handicaps recalculated successfully! The page will refresh.')
-      setTimeout(() => {
-        loadData()
-      }, 500)
+      setRecalcProgress({ current: steps.length, total: steps.length, message: 'Complete!' })
+      await new Promise(r => setTimeout(r, 800))
+      loadData()
     } catch (error: any) {
       console.error('Error recalculating handicaps:', error)
       alert(`Failed to recalculate handicaps: ${error.message || 'Unknown error'}`)
     } finally {
       setRecalculating(false)
+      setRecalcProgress(null)
     }
   }
 
@@ -675,6 +698,23 @@ export default function LeagueSetupPage() {
             </button>
           </div>
         </div>
+
+        {recalcProgress && (
+          <div className="bg-white rounded-lg shadow-lg p-4 mb-6">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium text-gray-700">{recalcProgress.message}</span>
+              <span className="text-sm font-medium text-gray-500">
+                {Math.round((recalcProgress.current / recalcProgress.total) * 100)}%
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3">
+              <div
+                className="bg-orange-600 h-3 rounded-full transition-all duration-500 ease-out"
+                style={{ width: `${(recalcProgress.current / recalcProgress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Set Roster Section */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
