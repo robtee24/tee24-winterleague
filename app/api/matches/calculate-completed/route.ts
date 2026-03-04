@@ -186,85 +186,79 @@ export async function POST(request: Request) {
           ]
         }
 
-        function getTeamScores(player1Score: any, player2Score: any): number[][] {
-          const player1HasHoles = hasHoleScores(player1Score)
-          const player2HasHoles = hasHoleScores(player2Score)
-
-          if (player1HasHoles && player2HasHoles) {
-            return [
-              extractHoleScores(player1Score),
-              extractHoleScores(player2Score)
-            ]
-          }
-
-          if (player1HasHoles && !player2HasHoles) {
-            const player1Scores = extractHoleScores(player1Score)
-            return [player1Scores, player1Scores]
-          }
-
-          if (!player1HasHoles && player2HasHoles) {
-            const player2Scores = extractHoleScores(player2Score)
-            return [player2Scores, player2Scores]
-          }
-
+        function getTeamScores(p1Score: any, p2Score: any): number[][] {
+          const p1Def = !p1Score || p1Score.isDefault
+          const p2Def = !p2Score || p2Score.isDefault
+          const p1Has = !p1Def && hasHoleScores(p1Score)
+          const p2Has = !p2Def && hasHoleScores(p2Score)
+          if (p1Has && p2Has) return [extractHoleScores(p1Score), extractHoleScores(p2Score)]
+          if (p1Has) return [extractHoleScores(p1Score)]
+          if (p2Has) return [extractHoleScores(p2Score)]
           return [[], []]
         }
 
-        const team1Scores = getTeamScores(team1Player1Score, team1Player2Score)
-        const team2Scores = getTeamScores(team2Player1Score, team2Player2Score)
-
-        if (team1Scores.length === 0 || team1Scores[0].length === 0 || team1Scores.every(s => s.every(h => h === 0))) {
-          weekSkipped++
-          continue
+        function isTeamForfeit(p1Score: any, p2Score: any): boolean {
+          const p1Def = !p1Score || p1Score.isDefault || !hasHoleScores(p1Score)
+          const p2Def = !p2Score || p2Score.isDefault || !hasHoleScores(p2Score)
+          return p1Def && p2Def
         }
 
-        if (team2Scores.length === 0 || team2Scores[0].length === 0 || team2Scores.every(s => s.every(h => h === 0))) {
-          weekSkipped++
-          continue
-        }
-
-        // Calculate match play
-        function calculateMatchPlay(team1Scores: number[][], team2Scores: number[][]): { team1Points: number; team2Points: number } {
+        function calculateMatchPlay(t1Scores: number[][], t2Scores: number[][]): { team1Points: number; team2Points: number } {
           let team1Points = 0
           let team2Points = 0
-
           for (let hole = 0; hole < 18; hole++) {
-            const team1HoleScores = team1Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined && s > 0)
-            const team2HoleScores = team2Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined && s > 0)
-
-            if (team1HoleScores.length === 0 || team2HoleScores.length === 0) {
-              continue
-            }
-
-            const team1Low = Math.min(...team1HoleScores)
-            const team2Low = Math.min(...team2HoleScores)
-
-            if (team1Low < team2Low) {
-              team1Points++
-            } else if (team2Low < team1Low) {
-              team2Points++
-            }
+            const t1Hole = t1Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined && s > 0)
+            const t2Hole = t2Scores.map(s => s[hole]).filter(s => s !== null && s !== undefined && s > 0)
+            if (t1Hole.length === 0 || t2Hole.length === 0) continue
+            const t1Low = Math.min(...t1Hole)
+            const t2Low = Math.min(...t2Hole)
+            if (t1Low < t2Low) team1Points++
+            else if (t2Low < t1Low) team2Points++
           }
-
           return { team1Points, team2Points }
         }
 
-        const { team1Points, team2Points } = calculateMatchPlay(team1Scores, team2Scores)
+        const team1Forfeits = isTeamForfeit(team1Player1Score, team1Player2Score)
+        const team2Forfeits = isTeamForfeit(team2Player1Score, team2Player2Score)
 
+        let team1Points: number
+        let team2Points: number
         let winnerId: number | null = null
-        if (team1Points > team2Points) {
-          winnerId = match.team1Id
-        } else if (team2Points > team1Points) {
+
+        if (team1Forfeits && team2Forfeits) {
+          team1Points = 0
+          team2Points = 0
+        } else if (team1Forfeits) {
+          team1Points = 0
+          team2Points = 18
           winnerId = team2.id
+        } else if (team2Forfeits) {
+          team1Points = 18
+          team2Points = 0
+          winnerId = match.team1Id
+        } else {
+          const team1Scores = getTeamScores(team1Player1Score, team1Player2Score)
+          const team2Scores = getTeamScores(team2Player1Score, team2Player2Score)
+
+          if (team1Scores.length === 0 || team1Scores[0].length === 0) {
+            weekSkipped++
+            continue
+          }
+          if (team2Scores.length === 0 || team2Scores[0].length === 0) {
+            weekSkipped++
+            continue
+          }
+
+          const result = calculateMatchPlay(team1Scores, team2Scores)
+          team1Points = result.team1Points
+          team2Points = result.team2Points
+          if (team1Points > team2Points) winnerId = match.team1Id
+          else if (team2Points > team1Points) winnerId = team2.id
         }
 
         await prisma.match.update({
           where: { id: match.id },
-          data: {
-            team1Points,
-            team2Points,
-            winnerId
-          }
+          data: { team1Points, team2Points, winnerId }
         })
 
         weekCalculated++

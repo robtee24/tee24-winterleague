@@ -30,30 +30,27 @@ function extractHoleScores(score: any): number[] {
 }
 
 /**
- * Get team scores, handling cases where a player only has total score
+ * Get team scores for match play.
+ * Default-score players contribute no hole data; only the partner who played counts.
  */
 function getTeamScores(player1Score: any, player2Score: any): number[][] {
-  const player1HasHoles = hasHoleScores(player1Score)
-  const player2HasHoles = hasHoleScores(player2Score)
+  const p1Default = !player1Score || player1Score.isDefault
+  const p2Default = !player2Score || player2Score.isDefault
+  const player1HasHoles = !p1Default && hasHoleScores(player1Score)
+  const player2HasHoles = !p2Default && hasHoleScores(player2Score)
 
   if (player1HasHoles && player2HasHoles) {
-    return [
-      extractHoleScores(player1Score),
-      extractHoleScores(player2Score)
-    ]
+    return [extractHoleScores(player1Score), extractHoleScores(player2Score)]
   }
-
-  if (player1HasHoles && !player2HasHoles) {
-    const player1Scores = extractHoleScores(player1Score)
-    return [player1Scores, player1Scores]
-  }
-
-  if (!player1HasHoles && player2HasHoles) {
-    const player2Scores = extractHoleScores(player2Score)
-    return [player2Scores, player2Scores]
-  }
-
+  if (player1HasHoles) return [extractHoleScores(player1Score)]
+  if (player2HasHoles) return [extractHoleScores(player2Score)]
   return [[], []]
+}
+
+function isTeamForfeit(p1Score: any, p2Score: any): boolean {
+  const p1Default = !p1Score || p1Score.isDefault || !hasHoleScores(p1Score)
+  const p2Default = !p2Score || p2Score.isDefault || !hasHoleScores(p2Score)
+  return p1Default && p2Default
 }
 
 /**
@@ -238,36 +235,41 @@ export async function POST(
       })
     }
 
-    // Check if at least one player from each team has a score
-    if (!team1Player1Score && !team1Player2Score) {
-      return NextResponse.json({ error: 'Team 1 has no scores' }, { status: 400 })
-    }
+    // Check for forfeits (both players on a team have default/missing scores)
+    const team1Forfeits = isTeamForfeit(team1Player1Score, team1Player2Score)
+    const team2Forfeits = isTeamForfeit(team2Player1Score, team2Player2Score)
 
-    if (!team2Player1Score && !team2Player2Score) {
-      return NextResponse.json({ error: 'Team 2 has no scores' }, { status: 400 })
-    }
-
-    // Get team scores
-    const team1Scores = getTeamScores(team1Player1Score, team1Player2Score)
-    const team2Scores = getTeamScores(team2Player1Score, team2Player2Score)
-
-    if (team1Scores.length === 0 || team1Scores[0].length === 0 || team1Scores.every(s => s.every(h => h === 0))) {
-      return NextResponse.json({ error: 'Team 1 has no valid hole-by-hole scores' }, { status: 400 })
-    }
-
-    if (team2Scores.length === 0 || team2Scores[0].length === 0 || team2Scores.every(s => s.every(h => h === 0))) {
-      return NextResponse.json({ error: 'Team 2 has no valid hole-by-hole scores' }, { status: 400 })
-    }
-
-    // Calculate match play points
-    const { team1Points, team2Points } = calculateMatchPlay(team1Scores, team2Scores)
-
-    // Determine winner
+    let team1Points: number
+    let team2Points: number
     let winnerId: number | null = null
-    if (team1Points > team2Points) {
-      winnerId = match.team1Id
-    } else if (team2Points > team1Points) {
+
+    if (team1Forfeits && team2Forfeits) {
+      team1Points = 0
+      team2Points = 0
+    } else if (team1Forfeits) {
+      team1Points = 0
+      team2Points = 18
       winnerId = team2.id
+    } else if (team2Forfeits) {
+      team1Points = 18
+      team2Points = 0
+      winnerId = match.team1Id
+    } else {
+      const team1Scores = getTeamScores(team1Player1Score, team1Player2Score)
+      const team2Scores = getTeamScores(team2Player1Score, team2Player2Score)
+
+      if (team1Scores.length === 0 || team1Scores[0].length === 0) {
+        return NextResponse.json({ error: 'Team 1 has no valid hole-by-hole scores' }, { status: 400 })
+      }
+      if (team2Scores.length === 0 || team2Scores[0].length === 0) {
+        return NextResponse.json({ error: 'Team 2 has no valid hole-by-hole scores' }, { status: 400 })
+      }
+
+      const result = calculateMatchPlay(team1Scores, team2Scores)
+      team1Points = result.team1Points
+      team2Points = result.team2Points
+      if (team1Points > team2Points) winnerId = match.team1Id
+      else if (team2Points > team1Points) winnerId = team2.id
     }
 
     // Update match
